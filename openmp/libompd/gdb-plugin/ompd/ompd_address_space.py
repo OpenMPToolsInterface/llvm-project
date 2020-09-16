@@ -151,9 +151,17 @@ class ompd_address_space(object):
 		# compare max threads; NOTE: not in ICV map
 		if 'omp_max_threads' in field_names and 'nthreads-var' in self.icv_map:
 			ompt_max_threads = thread_data['omp_max_threads']
-			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.get_current_task_handle(), self.icv_map['nthreads-var'][1], self.icv_map['nthreads-var'][0])
-			if ompt_max_threads != icv_value:
-				print('OMPT-OMPD mismatch: omp_max_threads (%d) does not match OMPD thread limit according to ICVs (%d)!' % (ompt_max_threads, icv_value))
+			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.thread_handle, self.icv_map['nthreads-var'][1], self.icv_map['nthreads-var'][0])
+			if icv_value is None:
+				icv_string = ompdModule.call_ompd_get_icv_string_from_scope(curr_thread.thread_handle, self.icv_map['nthreads-var'][1], self.icv_map['nthreads-var'][0])
+				if icv_string is None:
+					print('OMPT-OMPD mismatch: omp_max_threads (%d) does not match OMPD thread limit according to ICVs (None Object)' % (ompt_max_threads))
+				else:
+					if ompt_max_threads != int(icv_string.split(',')[0]):
+						print('OMPT-OMPD mismatch: omp_max_threads (%d) does not match OMPD thread limit according to ICVs (%d)!' % (ompt_max_threads, int(icv_string.split(',')[0])))
+			else:
+				if ompt_max_threads != icv_value:
+					print('OMPT-OMPD mismatch: omp_max_threads (%d) does not match OMPD thread limit according to ICVs (%d)!' % (ompt_max_threads, icv_value))
 		
 		# compare omp_parallel
 		# NOTE: omp_parallel = true if active-levels-var > 0
@@ -174,16 +182,9 @@ class ompd_address_space(object):
 		# compare omp_dynamic; TODO: test; not in ICV map
 		if 'omp_dynamic' in field_names and 'dyn-var' in self.icv_map:
 			ompt_dynamic = thread_data['omp_dynamic']
-			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.get_current_task_handle(), self.icv_map['dyn-var'][1], self.icv_map['dyn-var'][0])
+			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.thread_handle, self.icv_map['dyn-var'][1], self.icv_map['dyn-var'][0])
 			if icv_value != ompt_dynamic:
 				print('OMPT-OMPD mismatch: omp_dynamic (%d) does not match OMPD dynamic according to ICVs (%d)!' % (ompt_dynamic, icv_value))
-		
-		# compare omp_nested; TODO: test; not in ICV map
-		if 'omp_nested' in field_names and 'nest-var' in self.icv_map:
-			ompt_nested = thread_data['omp_nested']
-			icv_value = ompdModule.call_ompd_get_icv_from_scope(self.addr_space, self.icv_map['nest-var'][1], self.icv_map['nest-var'][0])
-			if ompt_nested != icv_value:
-				print('OMPT-OMPD mismatch: omp_nested (%d) does not match OMPD nested according to ICVs (%d)!' % (ompt_nested, icv_value))
 		
 		# compare omp_max_active_levels
 		if 'omp_max_active_levels' in field_names and 'max-active-levels-var' in self.icv_map:
@@ -216,7 +217,7 @@ class ompd_address_space(object):
 		# compare enter and exit frames
 		if 'ompt_frame_list' in field_names:
 			ompt_task_frame_dict = thread_data['ompt_frame_list'].dereference()
-			ompt_task_frames = (int(ompt_task_frame_dict['enter_frame']), int(ompt_task_frame_dict['exit_frame']))
+			ompt_task_frames = (int(ompt_task_frame_dict['enter_frame'].cast(gdb.lookup_type('long'))), int(ompt_task_frame_dict['exit_frame'].cast(gdb.lookup_type('long'))))
 			current_task = curr_thread.get_current_task()
 			ompd_task_frames = current_task.get_task_frame()
 			if ompt_task_frames != ompd_task_frames:
