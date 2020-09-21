@@ -170,17 +170,21 @@ class FrameFilter():
 			# iterate through generating tasks until outermost task is reached
 			while(1):
 				# get OMPD thread id for master thread (systag in GDB output)
-				master_num = self.curr_task.get_task_parallel().get_thread_in_parallel(0).get_thread_id()
-				
+				try:
+					master_num = self.curr_task.get_task_parallel().get_thread_in_parallel(0).get_thread_id()
+				except:
+					break
 				# search for thread id without the "l" for long via "thread find" and get GDB thread num from output
 				hex_str = str(hex(master_num))
 				thread_output = gdb.execute('thread find %s' % hex_str[0:len(hex_str)-1], to_string=True).split(" ")
 				if thread_output[0] == "No":
 					raise ValueError('Master thread num could not be found!')
 				gdb_master_num = int(thread_output[1])
-				
 				# get task that generated last task of worker thread
-				self.curr_task = self.curr_task.get_task_parallel().get_task_in_parallel(0).get_generating_task()
+				try:
+					self.curr_task = self.curr_task.get_task_parallel().get_task_in_parallel(0).get_generating_task()
+				except:
+					break;
 				self.frames = self.curr_task.get_task_frame()
 				(enter_frame, exit_frame) = self.frames
 				if exit_frame == 0:

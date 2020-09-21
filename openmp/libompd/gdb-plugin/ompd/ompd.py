@@ -86,6 +86,8 @@ class ompd_threads(gdb.Command):
 	
 	def invoke(self, arg, from_tty):
 		global addr_space
+		if init_error():
+			return
 		addr_space.list_threads(True)
 
 def print_parallel_region(curr_parallel, team_size):
@@ -119,6 +121,8 @@ class ompd_parallel_region(gdb.Command):
 
 	def invoke(self, arg, from_tty):
 		global addr_space
+		if init_error():
+			return
 		if addr_space.icv_map is None:
 			addr_space.get_icv_map()
 		if addr_space.states is None:
@@ -156,6 +160,8 @@ class ompd_icvs(gdb.Command):
 	def invoke(self, arg, from_tty):
 		global addr_space
 		global ompd_scope_map
+		if init_error():
+			return
 		curr_thread_handle = addr_space.get_curr_thread()
 		if addr_space.icv_map is None:
 			addr_space.get_icv_map()
@@ -201,7 +207,9 @@ class ompd_icvs(gdb.Command):
 def curr_thread():
 	"""Helper function for ompd_step. Returns the thread object for the current thread number."""
 	global addr_space
-	return addr_space.threads[int(gdb.selected_thread().num)]
+	if addr_space is not None:
+		return addr_space.threads[int(gdb.selected_thread().num)]
+	return None
 
 class ompd_test(gdb.Command):
 	"""Test area"""
@@ -212,19 +220,23 @@ class ompd_test(gdb.Command):
 	
 	def invoke(self, arg, from_tty):
 		global addr_space
-		
+		if init_error():
+			return
 		# get task function for current task of current thread
-		current_thread = int(gdb.selected_thread().num)
-		current_thread_obj = addr_space.threads[current_thread]
-		task_function = current_thread_obj.get_current_task().get_task_function()
-		print("bt value:", int("0x0000000000400b6c",0))
-		print("get_task_function value:", task_function)
-		
-		# get task function of implicit task in current parallel region for current thread
-		current_parallel_obj = current_thread_obj.get_current_parallel()
-		task_in_parallel = current_parallel_obj.get_task_in_parallel(current_thread)
-		task_function_in_parallel = task_in_parallel.get_task_function()
-		print("task_function_in_parallel:", task_function_in_parallel)
+		try:
+			current_thread = int(gdb.selected_thread().num)
+			current_thread_obj = addr_space.threads[current_thread]
+			task_function = current_thread_obj.get_current_task().get_task_function()
+			print("bt value:", int("0x0000000000400b6c",0))
+			print("get_task_function value:", task_function)
+
+			# get task function of implicit task in current parallel region for current thread
+			current_parallel_obj = current_thread_obj.get_current_parallel()
+			task_in_parallel = current_parallel_obj.get_task_in_parallel(current_thread)
+			task_function_in_parallel = task_in_parallel.get_task_function()
+			print("task_function_in_parallel:", task_function_in_parallel)
+		except:
+			print('Task function value not found for this thread')
 
 class ompd_bt(gdb.Command):
 	"""Turn filter for 'bt' on/off for output to only contain frames relevant to the application or all frames."""
@@ -238,6 +250,8 @@ class ompd_bt(gdb.Command):
 		global addr_space
 		global icv_map
 		global ompd_scope_map
+		if init_error():
+			return
 		if icv_map is None:
 			icv_map = {}
 			current = 0
@@ -258,7 +272,7 @@ class ompd_bt(gdb.Command):
 		elif arg_list[0] == 'on' and arg_list[1] == 'continued':
 			ff.set_switch(True)
 			ff.set_switch_continue(True)
-		elif arg_list[0] == 'off':
+		elif len(arg_list) == 1 and arg_list[0] == 'off':
 			ff.set_switch(False)
 			ff.set_switch_continue(False)
 		else:
@@ -273,25 +287,32 @@ class ompd_taskframes(gdb.Command):
 					gdb.COMMAND_STACK)
 	
 	def invoke(self, arg, from_tty):
+		global addr_space
+		if init_error():
+			return
 		frame = gdb.newest_frame()
 		while(frame):
 			print (frame.read_register('sp'))
 			frame = frame.older()
-		global addr_space
-		curr_thread_handle = curr_thread().thread_handle
-		curr_task_handle = ompdModule.call_ompd_get_curr_task_handle(curr_thread_handle)
+		curr_task_handle = None
+		if(addr_space.threads and addr_space.threads.get(gdb.selected_thread().num)):
+			curr_thread_handle = curr_thread().thread_handle
+			curr_task_handle = ompdModule.call_ompd_get_curr_task_handle(curr_thread_handle)
 		if(not curr_task_handle):
 			return None
-		
+		prev_frames = None
 		try:
 			while(1):
 				frames_with_flags = ompdModule.call_ompd_get_task_frame(curr_task_handle)
 				frames = (frames_with_flags[0], frames_with_flags[3])
+				if(prev_frames == frames):
+					break
 				if(not isinstance(frames,tuple)):
 					break
 				(ompd_enter_frame, ompd_exit_frame) = frames
 				print(hex(ompd_enter_frame), hex(ompd_exit_frame))
 				curr_task_handle = ompdModule.call_ompd_get_scheduling_task_handle(curr_task_handle)
+				prev_frames = frames
 				if(not curr_task_handle):
 					break
 		except:
@@ -318,24 +339,33 @@ class ompd_step(gdb.Command):
 	class TaskBeginBp(gdb.Breakpoint):
 		"""Helper class. Defines stop function for breakpoint ompd_bp_task_begin."""
 		def stop(self):
-			code_line = curr_thread().get_current_task().get_task_function()
-			frame_fct_bp = TempFrameFunctionBp(('*%i' % code_line), temporary=True, internal=True)
-			frame_fct_bp.thread = self.thread
-			
-			return False
+			try:
+				code_line = curr_thread().get_current_task().get_task_function()
+				frame_fct_bp = TempFrameFunctionBp(('*%i' % code_line), temporary=True, internal=True)
+				frame_fct_bp.thread = self.thread
+				return False
+			except:
+				return False
 	
 	def invoke(self, arg, from_tty):
 		global in_task_function
-		
+		if init_error():
+			return
 		tbp = self.TaskBeginBp('ompd_bp_task_begin', temporary=True, internal=True)
 		tbp.thread = int(gdb.selected_thread().num)
 		print_and_exec('step')
-		
 		while gdb.selected_frame().find_sal().symtab is None:
 			if not in_task_function:
 				print_and_exec('finish')
 			else:
 				print_and_exec('si')
+
+def init_error():
+	global addr_space
+	if (gdb.selected_thread() is None) or (addr_space is None) or (not addr_space):
+		print("Run 'ompd init' before running any of the ompd commands")
+		return True
+	return False
 
 def main():
 	ompd()
