@@ -288,8 +288,7 @@ class ompd_taskframes(gdb.Command):
 	
 	def invoke(self, arg, from_tty):
 		global addr_space
-		if not addr_space:
-			init_error()
+		if init_error():
 			return
 		frame = gdb.newest_frame()
 		while(frame):
@@ -350,8 +349,7 @@ class ompd_step(gdb.Command):
 	
 	def invoke(self, arg, from_tty):
 		global in_task_function
-		if gdb.selected_thread() is None:
-			print("Run 'ompd init' before running any of the ompd commands")
+		if init_error():
 			return
 		tbp = self.TaskBeginBp('ompd_bp_task_begin', temporary=True, internal=True)
 		tbp.thread = int(gdb.selected_thread().num)
@@ -364,7 +362,7 @@ class ompd_step(gdb.Command):
 
 def init_error():
 	global addr_space
-	if addr_space is None:
+	if (gdb.selected_thread() is None) or (addr_space is None) or (not addr_space):
 		print("Run 'ompd init' before running any of the ompd commands")
 		return True
 	return False
