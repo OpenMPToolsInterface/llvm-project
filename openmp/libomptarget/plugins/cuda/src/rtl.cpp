@@ -137,6 +137,7 @@ extern "C" {
   /* TODO - Put these OMPD globals someplace cleaner */
   uint64_t ompd_num_cuda_devices;
   DeviceDataTy* ompd_CudaDeviceDataArray;
+  uint64_t ompd_sizeof__DeviceDataTy;
   uint64_t ompd_access__DeviceDataTy__Context;
   uint64_t ompd_sizeof__DeviceDataTy__Context;
 #ifdef __cplusplus
@@ -372,6 +373,7 @@ public:
     }
 
 #if OMPD_SUPPORT
+    ompd_sizeof__DeviceDataTy = sizeof(DeviceDataTy);
     ompd_access__DeviceDataTy__Context = (uint64_t)&(((DeviceDataTy*)0)->Context);
     ompd_sizeof__DeviceDataTy__Context = sizeof(((DeviceDataTy*)0)->Context);
     ompd_num_cuda_devices = NumberOfDevices;
