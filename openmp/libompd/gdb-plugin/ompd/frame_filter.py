@@ -163,10 +163,10 @@ class FrameFilter():
 		
 		# implementation of "ompd bt continued"
 		if self.continue_to_master:
-			
+
+			trace_commands = 0
 			orig_thread = gdb.selected_thread().num
 			gdb_threads = dict([(t.num, t) for t in gdb.selected_inferior().threads()])
-			
 			# iterate through generating tasks until outermost task is reached
 			while(1):
 				# get OMPD thread id for master thread (systag in GDB output)
@@ -177,9 +177,11 @@ class FrameFilter():
 				# search for thread id without the "l" for long via "thread find" and get GDB thread num from output
 				hex_str = str(hex(master_num))
 				thread_output = gdb.execute('thread find %s' % hex_str[0:len(hex_str)-1], to_string=True).split(" ")
-				if thread_output[0] == "No":
+				if thread_output[0] == "++thread":
+					trace_commands = 2
+				if thread_output[0 + trace_commands] == "No":
 					raise ValueError('Master thread num could not be found!')
-				gdb_master_num = int(thread_output[1])
+				gdb_master_num = int(thread_output[1 + trace_commands])
 				# get task that generated last task of worker thread
 				try:
 					self.curr_task = self.curr_task.get_task_parallel().get_task_in_parallel(0).get_generating_task()
@@ -243,7 +245,6 @@ class FrameFilter():
 				gdb_threads[worker_thread].switch()
 				
 			gdb_threads[orig_thread].switch()
-	
 	
 	def filter(self, frame_iter):
 		"""Function is called automatically with every 'bt' executed. If switched on, this will only let revelant frames be printed 
