@@ -183,7 +183,7 @@ class ompd_icvs(gdb.Command):
 				else:
 					raise ValueError("Invalid scope")
 
-				if (icv_name == "nthreads-var"):
+				if (icv_name == "nthreads-var" or icv_name == "bind-var"):
 					icv_value = ompdModule.call_ompd_get_icv_from_scope(
 						    handle, scope, addr_space.icv_map[icv_name][0])
 					if icv_value is None:

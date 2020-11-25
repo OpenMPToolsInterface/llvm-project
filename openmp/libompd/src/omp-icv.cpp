@@ -737,27 +737,149 @@ ompd_get_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   return ret;
 }
 
-static ompd_rc_t
-ompd_get_proc_bind(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
-                   ompd_word_t *bind /* OUT: Kind of proc-binding */
-                   ) {
+/* Helper routine for the ompd_get_proc_bind routines */
+static ompd_rc_t ompd_get_proc_bind_aux(
+    ompd_task_handle_t *task_handle,
+    uint32_t *used,
+    uint32_t *current_nesting_level,
+    uint32_t *proc_bind
+    ) {
   if (!task_handle->ah)
     return ompd_rc_stale_handle;
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks)
+    return ompd_rc_error;
 
-  ompd_rc_t ret = TValue(context, task_handle->th)
-                      .cast("kmp_taskdata_t") // td
-                      .access("td_icvs")      // td->td_icvs
-                      .cast("kmp_internal_control_t", 0)
-                      .access("proc_bind") // td->td_icvs.proc_bind
-                      .castBase()
-                      .getValue(*bind);
+  ompd_rc_t ret = TValue(context, "__kmp_nested_proc_bind")
+           .cast("kmp_nested_proc_bind_t")
+           .access("used")
+           .castBase(ompd_type_int)
+           .getValue(*used);
+  if (ret != ompd_rc_ok)
+    return ret;
 
+  TValue taskdata =
+      TValue(context, task_handle->th) /* td */
+          .cast("kmp_taskdata_t");
+
+  ret = taskdata
+          .access("td_team") /* td->td_team*/
+          .cast("kmp_team_p", 1)
+          .access("t") /* td->td_team->t*/
+          .cast("kmp_base_team_t", 0) /*t*/
+          .access("t_level")          /*t.t_level*/
+          .castBase(ompd_type_int)
+          .getValue(*current_nesting_level);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  ret = taskdata
+          .access("td_icvs") /* td->td_icvs */
+          .cast("kmp_internal_control_t", 0)
+          .access("proc_bind") /* td->td_icvs.proc_bind */
+          .castBase()
+          .getValue(*proc_bind);
   return ret;
+}
+
+static ompd_rc_t
+ompd_get_proc_bind(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle */
+                   ompd_word_t *bind                /* OUT: Kind of proc-binding */
+                   ) {
+  uint32_t used;
+  uint32_t proc_bind;
+  uint32_t current_nesting_level;
+
+  ompd_rc_t ret;
+  ret = ompd_get_proc_bind_aux (task_handle, &used,
+                                &current_nesting_level, &proc_bind);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  /* td->td_icvs.proc_bind */
+  *bind = proc_bind;
+  /* If bind-var is a list with more than one element, then the value of
+     this ICV cannot be represented by an integer type. In this case,
+     ompd_rc_incompatible is returned. The tool can check the return value and
+     can choose to invoke ompd_get_icv_string_from_scope() if needed. */
+  if (current_nesting_level < used - 1) {
+    return ompd_rc_incompatible;
+  }
+  return ompd_rc_ok;
+}
+
+
+static ompd_rc_t
+ompd_get_proc_bind(
+    ompd_task_handle_t *task_handle,     /* IN: OpenMP task handle */
+    const char **proc_bind_list_string   /* OUT: string list of comma separated
+                                            bind-var values */
+    ) {
+  uint32_t used;
+  uint32_t proc_bind;
+  uint32_t current_nesting_level;
+
+  ompd_rc_t ret;
+  ret = ompd_get_proc_bind_aux (task_handle, &used,
+                                &current_nesting_level, &proc_bind);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  uint32_t num_list_elems;
+  if (used == 0 || current_nesting_level >= used) {
+    num_list_elems = 1;
+  } else {
+    num_list_elems = used - current_nesting_level;
+  }
+  size_t buffer_size =
+    16 /* digits per element including the comma separator */
+      * num_list_elems + 1; /* string terminator NULL */
+  char *proc_bind_list_str;
+  ret = callbacks->alloc_memory(buffer_size, (void **)&proc_bind_list_str);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  /* The bind-var list would be:
+  [td->td_icvs.proc_bind,
+   __kmp_nested_proc_bind.bind_types[current_nesting_level + 1],
+   __kmp_nested_proc_bind.bind_types[current_nesting_level + 2],
+    …,
+   __kmp_nested_proc_bind.bind_types[used - 1]]*/
+
+  sprintf(proc_bind_list_str, "%d", proc_bind);
+  *proc_bind_list_string = proc_bind_list_str;
+  if (num_list_elems == 1) {
+    return ompd_rc_ok;
+  }
+
+  char temp_value[16];
+  uint32_t bind_types_value;
+
+  for (current_nesting_level++; /* the list element for this nesting
+                                 * level has already been accounted for
+                                   by proc_bind */
+       current_nesting_level < used;
+       current_nesting_level++) {
+
+    ret = TValue(task_handle->ah->context, "__kmp_nested_proc_bind")
+             .cast("kmp_nested_proc_bind_t")
+             .access("bind_types")
+             .cast("int", 1)
+             .getArrayElement(current_nesting_level)
+             .castBase(ompd_type_int)
+             .getValue(bind_types_value);
+
+    if (ret != ompd_rc_ok)
+      return ret;
+
+    sprintf(temp_value, ",%d", bind_types_value);
+    strcat (proc_bind_list_str, temp_value);
+  }
+
+  return ompd_rc_ok;
 }
 
 
@@ -968,6 +1090,8 @@ ompd_get_icv_string_from_scope(void *handle, ompd_scope_t scope,
     switch (icv_id) {
       case ompd_icv_nthreads_var:
         return ompd_get_nthreads((ompd_thread_handle_t *)handle, icv_string);
+      case ompd_icv_bind_var:
+        return ompd_get_proc_bind((ompd_task_handle_t *)handle, icv_string);
       case ompd_icv_affinity_format_var:
         return ompd_get_affinity_format((ompd_address_space_handle_t *)handle,
              icv_string);
