@@ -326,6 +326,91 @@ class ompdtestapi (gdb.Command):
 		elif arg == "ompd_get_omp_version_string":
 			addr_handle = addr_space.addr_space
 			ompdModule.test_ompd_get_omp_version_string(addr_handle)
+		elif arg == "ompd_get_curr_task_handle":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			ompdModule.test_ompd_get_curr_task_handle(thread_handle)
+		elif arg == "ompd_get_task_parallel_handle":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			task_handle = ompdModule.call_ompd_get_curr_task_handle(thread_handle)
+			ompdModule.test_ompd_get_task_parallel_handle(task_handle)
+		elif arg == "ompd_get_generating_task_handle":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			task_handle = ompdModule.call_ompd_get_curr_task_handle(thread_handle)
+			ompdModule.test_ompd_get_generating_task_handle(task_handle)
+		elif arg == "ompd_get_scheduling_task_handle":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			task_handle = ompdModule.call_ompd_get_curr_task_handle(thread_handle)
+			ompdModule.test_ompd_get_scheduling_task_handle(task_handle)
+		elif arg == "ompd_get_task_in_parallel":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			parallel_handle = ompdModule.call_ompd_get_curr_parallel_handle(thread_handle)
+			ompdModule.test_ompd_get_task_in_parallel(parallel_handle)
+		elif arg == "ompd_rel_task_handle":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			task_handle = ompdModule.call_ompd_get_curr_task_handle(thread_handle)
+			ompdModule.test_ompd_rel_task_handle(task_handle)
+		elif arg == "ompd_task_handle_compare":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			task_handle1 = ompdModule.call_ompd_get_curr_task_handle(thread_handle)
+			task_handle2 = ompdModule.call_ompd_get_generating_task_handle(task_handle1)
+			ompdModule.test_ompd_task_handle_compare(task_handle1, task_handle2)
+			ompdModule.test_ompd_task_handle_compare(task_handle2, task_handle1)
+		elif arg == "ompd_get_task_function":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			task_handle = ompdModule.call_ompd_get_curr_task_handle(thread_handle)
+			ompdModule.test_ompd_get_task_function(task_handle)
+		elif arg == "ompd_get_task_frame":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			task_handle = ompdModule.call_ompd_get_curr_task_handle(thread_handle)
+			ompdModule.test_ompd_get_task_frame(task_handle)
+		elif arg == "ompd_get_state":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			ompdModule.test_ompd_get_state(thread_handle)
+		elif arg == "ompd_get_display_control_vars":
+			addr_handle = addr_space.addr_space
+			ompdModule.test_ompd_get_display_control_vars(addr_handle)
+		elif arg == "ompd_rel_display_control_vars":
+			ompdModule.test_ompd_rel_display_control_vars()
+		elif arg == "ompd_enumerate_icvs":
+			addr_handle = addr_space.addr_space
+			ompdModule.test_ompd_enumerate_icvs(addr_handle)
+		elif arg== "ompd_get_icv_from_scope":
+			addr_handle = addr_space.addr_space
+			threadId = gdb.selected_thread().ptid[1]
+			thread_handle = ompdModule.get_thread_handle(threadId, addr_handle)
+			parallel_handle = ompdModule.call_ompd_get_curr_parallel_handle(thread_handle)
+			task_handle = ompdModule.call_ompd_get_curr_task_handle(thread_handle)	
+			ompdModule.test_ompd_get_icv_from_scope_with_addr_handle(addr_handle)
+			ompdModule.test_ompd_get_icv_from_scope_with_thread_handle(thread_handle)
+			ompdModule.test_ompd_get_icv_from_scope_with_parallel_handle(parallel_handle)
+			ompdModule.test_ompd_get_icv_from_scope_with_task_handle(task_handle)
+		elif arg == "ompd_get_icv_string_from_scope":
+			addr_handle = addr_space.addr_space
+			ompdModule.test_ompd_get_icv_string_from_scope(addr_handle)
+		elif arg == "ompd_get_tool_data":
+			ompdModule.test_ompd_get_tool_data()
+		elif arg == "ompd_enumerate_states":
+			ompdModule.test_ompd_enumerate_states()
 		else:
 			print ("Invalid API.")
 

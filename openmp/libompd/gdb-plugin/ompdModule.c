@@ -387,6 +387,29 @@ OMPD_WEAK_ATTR ompd_rc_t ompd_rel_task_handle(ompd_task_handle_t* taskHandle) {
 	return my_release_task_handle(taskHandle);
 }
 
+OMPD_WEAK_ATTR ompd_rc_t ompd_task_handle_compare(ompd_task_handle_t *task_handle_1,
+					ompd_task_handle_t *task_handle_2, int *cmp_value) {
+	static ompd_rc_t (*my_task_handle_compare) (ompd_task_handle_t *, ompd_task_handle_t *, int*) = NULL;
+	if (!my_task_handle_compare){
+		my_task_handle_compare = dlsym(ompd_library, "ompd_task_handle_compare");
+		if(dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_task_handle_compare(task_handle_1, task_handle_2, cmp_value);
+}
+
+OMPD_WEAK_ATTR ompd_rc_t ompd_get_display_control_vars (ompd_address_space_handle_t *address_space_handle,
+					const char * const **control_vars) {
+	static ompd_rc_t (*my_ompd_get_display_control_vars) (ompd_address_space_handle_t*, const char * const **) = NULL;
+	if (!my_ompd_get_display_control_vars) {
+		my_ompd_get_display_control_vars = dlsym(ompd_library, "ompd_get_display_control_vars");
+		if(dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_ompd_get_display_control_vars(address_space_handle, control_vars);
+}
 
 /**
  * Loads the OMPD library (libompd.so). Returns an integer with the version if the OMPD
@@ -1267,7 +1290,26 @@ PyObject* test_ompd_device_initialize (PyObject* self, PyObject* noargs);
 PyObject* test_ompd_rel_address_space_handle (PyObject* self, PyObject* noargs);
 PyObject* test_ompd_get_omp_version (PyObject* self, PyObject* args);
 PyObject* test_ompd_get_omp_version_string (PyObject* self, PyObject* args);
-
+PyObject* test_ompd_get_curr_task_handle (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_task_parallel_handle(PyObject* self, PyObject* args);
+PyObject* test_ompd_get_generating_task_handle(PyObject* self, PyObject* args);
+PyObject* test_ompd_get_scheduling_task_handle(PyObject* self, PyObject* args);
+PyObject* test_ompd_get_task_in_parallel (PyObject* self, PyObject* args);
+PyObject* test_ompd_rel_task_handle (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_task_handle_compare (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_task_function (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_task_frame (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_state (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_display_control_vars (PyObject* self, PyObject* args);
+PyObject* test_ompd_rel_display_control_vars (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_enumerate_icvs (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_icv_from_scope_with_addr_handle (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_icv_from_scope_with_thread_handle (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_icv_from_scope_with_parallel_handle (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_icv_from_scope_with_task_handle (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_icv_string_from_scope (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_tool_data (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_enumerate_states (PyObject* self, PyObject* noargs);
 /**
  * Binds Python function names to C functions.
  */
@@ -1316,6 +1358,27 @@ static PyMethodDef ompdModule_methods[] = {
 	{"test_ompd_rel_address_space_handle", test_ompd_rel_address_space_handle, METH_VARARGS, "Test API ompd_rel_address_space_handle."},
 	{"test_ompd_get_omp_version", test_ompd_get_omp_version, METH_VARARGS, "Test API ompd_get_omp_version."},
 	{"test_ompd_get_omp_version_string", test_ompd_get_omp_version_string, METH_VARARGS, "Test API ompd_get_omp_version_string."},
+
+	{"test_ompd_get_curr_task_handle", test_ompd_get_curr_task_handle, METH_VARARGS, "Test API ompd_get_curr_task_handle."},
+	{"test_ompd_get_task_parallel_handle", test_ompd_get_task_parallel_handle, METH_VARARGS, "Test API ompd_get_task_parallel_handle."},
+	{"test_ompd_get_generating_task_handle", test_ompd_get_generating_task_handle, METH_VARARGS, "Test API ompd_get_generating_task_handle."},
+	{"test_ompd_get_scheduling_task_handle", test_ompd_get_scheduling_task_handle, METH_VARARGS, "Test API ompd_get_scheduling_task_handle."},
+	{"test_ompd_get_task_in_parallel", test_ompd_get_task_in_parallel, METH_VARARGS, "Test API ompd_get_task_in_parallel."},
+	{"test_ompd_rel_task_handle", test_ompd_rel_task_handle, METH_VARARGS, "Test API ompd_rel_task_handle."},
+	{"test_ompd_task_handle_compare", test_ompd_task_handle_compare, METH_VARARGS, "Test API ompd_task_handle_compare."},
+	{"test_ompd_get_task_function", test_ompd_get_task_function, METH_VARARGS, "Test API ompd_get_task_function."},
+	{"test_ompd_get_task_frame", test_ompd_get_task_frame, METH_VARARGS, "Test API ompd_get_task_frame."},
+	{"test_ompd_get_state", test_ompd_get_state, METH_VARARGS, "Test API ompd_get_state."},
+	{"test_ompd_get_display_control_vars", test_ompd_get_display_control_vars, METH_VARARGS, "Test API ompd_get_display_control_vars."},
+	{"test_ompd_rel_display_control_vars", test_ompd_rel_display_control_vars, METH_VARARGS, "Test API ompd_rel_display_control_vars."},
+	{"test_ompd_enumerate_icvs", test_ompd_enumerate_icvs, METH_VARARGS, "Test API ompd_enumerate_icvs."},
+	{"test_ompd_get_icv_from_scope_with_addr_handle", test_ompd_get_icv_from_scope_with_addr_handle, METH_VARARGS, "Test API ompd_get_icv_from_scope with addr_handle."},
+	{"test_ompd_get_icv_from_scope_with_thread_handle", test_ompd_get_icv_from_scope_with_thread_handle, METH_VARARGS, "Test API ompd_get_icv_from_scope with thread_handle."},
+	{"test_ompd_get_icv_from_scope_with_parallel_handle", test_ompd_get_icv_from_scope_with_parallel_handle, METH_VARARGS, "Test API ompd_get_icv_from_scope with parallel_handle."},
+	{"test_ompd_get_icv_from_scope_with_task_handle", test_ompd_get_icv_from_scope_with_task_handle, METH_VARARGS, "Test API ompd_get_icv_from_scope with task_handle."},
+	{"test_ompd_get_icv_string_from_scope", test_ompd_get_icv_string_from_scope, METH_VARARGS, "Test API ompd_get_icv_string_from_scope."},
+	{"test_ompd_get_tool_data", test_ompd_get_tool_data, METH_VARARGS, "Test API ompd_get_tool_data."},
+	{"test_ompd_enumerate_states", test_ompd_enumerate_states, METH_VARARGS, "Test API ompd_enumerate_states."},
 	{NULL, NULL, 0, NULL}
 };
 

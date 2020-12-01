@@ -453,7 +453,7 @@ PyObject* test_ompd_get_thread_id (PyObject* self, PyObject* args)
 	uint64_t threadID;
 	ompd_size_t sizeof_thread_id = sizeof (threadID);
 
-	printf ("Test: With Correct Arguments.\n ");
+	printf ("Test: With Correct Arguments.\n");
 	ompd_rc_t rc = ompd_get_thread_id(thread_handle, 1/*lwp*/, sizeof_thread_id, &threadID);
 	if (rc != ompd_rc_ok) {
 		printf ("Failed, with return code = %d\n", rc);
@@ -1396,3 +1396,1435 @@ PyObject* test_ompd_get_omp_version_string (PyObject* self, PyObject* args)
 	return Py_None;
 }
 
+/*
+	Test API: ompd_get_curr_task_handle
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_get_curr_task_handle
+
+*/
+
+PyObject* test_ompd_get_curr_task_handle (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_curr_task_handle\"...\n");
+
+	PyObject* threadHandlePy = PyTuple_GetItem(args, 0);
+	ompd_thread_handle_t* thread_handle = (ompd_thread_handle_t*)(PyCapsule_GetPointer(threadHandlePy, "ThreadHandle"));
+
+	ompd_task_handle_t *task_handle;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_curr_task_handle(thread_handle, &task_handle);
+	if (rc == ompd_rc_unavailable) {
+		//ompd_rc_unavailable if the thread is not currently executing a task
+
+		printf ("Success. Return code is ompd_rc_unavailable, Not executing a task.\n");
+		printf ("No more testing is possible.\n");
+		return Py_None;
+	}else if (rc == ompd_rc_stale_handle) {
+		printf ("Failed. Return code is stale_handle, may be in non parallel region.\n");
+		printf ("No more testing is possible.\n");
+		return Py_None;
+	}else if (rc != ompd_rc_ok)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_curr_task_handle(0xdeadbeef, &task_handle);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL parallel_handle.\n");
+	rc = ompd_get_curr_task_handle(thread_handle, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Expecting ompd_rc_error or stale_handle for NULL thread_handle.\n");
+	rc = ompd_get_curr_parallel_handle(NULL, &task_handle);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_task_parallel_handle
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_get_task_parallel_handle
+
+*/
+PyObject* test_ompd_get_task_parallel_handle(PyObject* self, PyObject* args)
+{
+
+	printf ("Testing \"ompd_get_task_parallel_handle\"...\n");
+
+	PyObject* taskHandlePy = PyTuple_GetItem(args, 0);
+	ompd_task_handle_t* task_handle = PyCapsule_GetPointer(taskHandlePy, "TaskHandle");
+
+	ompd_parallel_handle_t *task_parallel_handle;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_task_parallel_handle(task_handle, &task_parallel_handle);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+	   ompd_rc_stale_handle:   is returned when the specified handle is no longer valid;
+	   ompd_rc_bad_input:	   is returned when the input parameters (other than handle) are invalid;
+	   ompd_rc_error:		   is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_task_parallel_handle(0xdeadbeef, &task_parallel_handle);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL task_parallel_handle.\n");
+	rc = ompd_get_task_parallel_handle(task_handle, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Expecting ompd_rc_error or stale_handle for NULL task_handle.\n");
+	rc = ompd_get_task_parallel_handle(NULL, &task_parallel_handle);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_generating_task_handle
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		c // may or may not be needed
+		ompdtestapi ompd_get_generating_task_handle
+
+*/
+PyObject* test_ompd_get_generating_task_handle(PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_generating_task_handle\"...\n");
+
+	PyObject* taskHandlePy = PyTuple_GetItem(args, 0);
+	ompd_task_handle_t* task_handle = (ompd_task_handle_t*)(PyCapsule_GetPointer(taskHandlePy, "TaskHandle"));
+	ompd_task_handle_t *generating_task_handle;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_generating_task_handle(task_handle, &generating_task_handle);
+	if (rc == ompd_rc_unavailable) {
+		//ompd_rc_unavailable if no generating task handle exists.
+		printf ("Success. Return code is ompd_rc_unavailable\n");
+		printf ("No more testing is possible.\n");
+		return Py_None;
+	}else if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+	   ompd_rc_stale_handle:   is returned when the specified handle is no longer valid;
+	   ompd_rc_bad_input:	   is returned when the input parameters (other than handle) are invalid;
+	   ompd_rc_error:		   is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_generating_task_handle(0xdeadbeef, &generating_task_handle);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL generating_task_handle.\n");
+	rc = ompd_get_generating_task_handle(task_handle, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Expecting ompd_rc_error or stale_handle for NULL task_handle.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_generating_task_handle(NULL, &generating_task_handle);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_scheduling_task_handle
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_get_scheduling_task_handle
+
+*/
+PyObject* test_ompd_get_scheduling_task_handle(PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_scheduling_task_handle\"...\n");
+
+	PyObject* taskHandlePy = PyTuple_GetItem(args, 0);
+	ompd_task_handle_t* task_handle = (ompd_task_handle_t*)(PyCapsule_GetPointer(taskHandlePy, "TaskHandle"));
+	ompd_task_handle_t *scheduling_task_handle;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_scheduling_task_handle(task_handle, &scheduling_task_handle);
+	if (rc == ompd_rc_unavailable) {
+		//ompd_rc_unavailable if no generating task handle exists.
+		printf ("Success. Return code is ompd_rc_unavailable, No scheduling task.\n");
+		printf ("No more testing is possible.\n");
+		return Py_None;
+	}else if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+	   ompd_rc_stale_handle:   is returned when the specified handle is no longer valid;
+	   ompd_rc_bad_input:	   is returned when the input parameters (other than handle) are invalid;
+	   ompd_rc_error:		   is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_scheduling_task_handle(0xdeadbeef, &scheduling_task_handle);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL scheduling_task_handle.\n");
+	rc = ompd_get_scheduling_task_handle(task_handle, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Expecting ompd_rc_error or stale_handle for NULL task_handle.\n");
+	rc = ompd_get_scheduling_task_handle(NULL, &scheduling_task_handle);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_task_in_parallel
+
+	Program:
+		program:
+		1.		#include <stdio.h>
+		2.		#include <omp.h>
+		3.		int main () {
+		4.				omp_set_num_threads(4);
+		5.				#pragma omp parallel
+		6.				{
+		7.						printf ("Parallel level 1, thread num = %d", omp_get_thread_num());
+		8.				}
+		9.			   return 0;
+		10.		}
+
+	GDB Commands:
+		ompd init
+		b 7
+		c
+		ompdtestapi ompd_get_task_in_parallel
+
+*/
+PyObject* test_ompd_get_task_in_parallel (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_task_in_parallel\"...\n");
+
+	PyObject* parallelHandlePy = PyTuple_GetItem(args, 0);
+	ompd_parallel_handle_t* parallel_handle = (ompd_parallel_handle_t*)(PyCapsule_GetPointer(parallelHandlePy, "ParallelHandle"));
+	ompd_task_handle_t *task_handle;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_task_in_parallel (parallel_handle, 1 /* lesser than team-size-var*/, &task_handle);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	//ompd_rc_bad_input if the thread_num argument is greater than or equal to the team-size-var ICV or negative
+	printf ("Test: Invalid thread num (199).\n");
+	rc = ompd_get_task_in_parallel (parallel_handle, 199, &task_handle);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Invalid thread num (-5).\n");
+	rc = ompd_get_task_in_parallel (parallel_handle, -5, &task_handle);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_task_in_parallel (0xdeadbeef, 1, &task_handle);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL task_handle.\n");
+	rc = ompd_get_task_in_parallel (parallel_handle, 1, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Expecting ompd_rc_error or stale_handle for NULL parallel_handle.\n");
+	rc = ompd_get_task_in_parallel (NULL, 1, &task_handle);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+
+}
+
+/*
+	Test API: ompd_rel_task_handle
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_rel_task_handle
+
+*/
+PyObject* test_ompd_rel_task_handle (PyObject* self, PyObject* noargs)
+{
+	printf ("Testing Not enabled for \"ompd_rel_task_handle\".\n");
+	printf ("Skipping.\n");
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_task_handle_compare
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		c
+		ompdtestapi ompd_task_handle_compare
+
+*/
+PyObject* test_ompd_task_handle_compare (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_task_handle_compare\"...\n");
+
+	PyObject* taskHandlePy1 = PyTuple_GetItem(args, 0);
+	ompd_task_handle_t* task_handle1 = (ompd_task_handle_t*)(PyCapsule_GetPointer(taskHandlePy1, "TaskHandle"));
+	PyObject* taskHandlePy2 = PyTuple_GetItem(args, 1);
+	ompd_task_handle_t* task_handle2 = (ompd_task_handle_t*)(PyCapsule_GetPointer(taskHandlePy2, "TaskHandle"));
+
+	int cmp_value;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_task_handle_compare (task_handle1, task_handle2, &cmp_value);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}
+	else
+		printf ("Success.\n");
+
+	if (cmp_value == 0) {
+		printf ("Task Handles are Same.\n");
+	} else {
+		// a value less than, equal to, or greater than 0 indicates that the task that corresponds	to task_handle_1 is,
+		// respectively, less than, equal to, or greater than the task that corresponds to task_handle_2.
+		if (cmp_value <= 0) {
+			printf ("Task handle 1 is lesser than handle 2, cmp_val = %d\n", cmp_value);
+			printf ("Test: Changing the order.\n");
+			rc = ompd_task_handle_compare (task_handle2, task_handle1, &cmp_value);
+			if (rc != ompd_rc_ok) {
+				printf ("Failed. with return code = %d\n", rc);
+				return Py_None;
+			}
+			if (cmp_value >= 0)
+				printf ("Success now cmp_value is greater, %d.\n", cmp_value);
+			else
+				printf ("Failed.\n");
+		} else {
+			printf ("Task 1 is greater than handle 2.\n");
+			printf ("Test: Changing the order.\n");
+			rc = ompd_task_handle_compare (task_handle2, task_handle1, &cmp_value);
+			if (rc != ompd_rc_ok) {
+				printf ("Failed. with return code = %d\n", rc);
+				return Py_None;
+			}
+			if (cmp_value <= 0)
+				printf ("Success now cmp_value is lesser, %d.\n", cmp_value);
+			else
+				printf ("Failed.\n");
+			}
+
+		// Random checks with  null and invalid args.
+		/*
+			ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+			ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+			ompd_rc_error:			is returned when a fatal error occurred;
+		*/
+		printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+		#if ABORTHANDLED
+		rc = ompd_task_handle_compare (task_handle2, 0xdeadbeef, &cmp_value);
+		if (rc != ompd_rc_stale_handle)
+			printf ("Failed. with return code = %d\n", rc);
+		else
+			printf ("Success.\n");
+		#else
+		printf ("Skipped. Aborted, not handled.\n");
+		#endif
+
+		printf ("Test: Expecting ompd_rc_bad_input for NULL cmp_value.\n");
+		#if ABORTHANDLED
+		rc = ompd_task_handle_compare (task_handle2, task_handle1, NULL);
+		if (rc != ompd_rc_bad_input)
+			printf ("Failed. with return code = %d\n", rc);
+		else
+			printf ("Success.\n");
+		#else
+		printf ("Skipped. Aborted, not handled.\n");
+		#endif
+
+		printf ("Test: Expecting ompd_rc_error or stale_handle for NULL task_handle.\n");
+		rc = ompd_task_handle_compare (NULL, task_handle1, &cmp_value);
+		if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+			printf ("Failed. with return code = %d\n", rc);
+		else
+			printf ("Success.\n");
+	}
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_task_function
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_get_task_function
+
+*/
+PyObject* test_ompd_get_task_function (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_task_function\"...\n");
+
+	PyObject* taskHandlePy = PyTuple_GetItem(args, 0);
+	ompd_task_handle_t* task_handle = (ompd_task_handle_t*)(PyCapsule_GetPointer(taskHandlePy, "TaskHandle"));
+
+	ompd_address_t entry_point;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_task_function (task_handle, &entry_point);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	} else
+		printf ("Success. Entry point is %p.\n", entry_point);
+
+	// Random checks with  null and invalid args.
+	/*
+	   ompd_rc_stale_handle:   is returned when the specified handle is no longer valid;
+	   ompd_rc_bad_input:	   is returned when the input parameters (other than handle) are invalid;
+	   ompd_rc_error:		   is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_task_function(0xdeadbeef, &entry_point);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL entry_point.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_task_function(task_handle, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_error or stale_handle for NULL task_handle.\n");
+	rc = ompd_get_task_function(NULL, &entry_point);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+
+}
+
+/*
+	Test API: ompd_get_task_frame
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_get_task_frame
+
+*/
+PyObject* test_ompd_get_task_frame (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_task_frame\"...\n");
+
+	PyObject* taskHandlePy = PyTuple_GetItem(args, 0);
+	ompd_task_handle_t* task_handle = (ompd_task_handle_t*)(PyCapsule_GetPointer(taskHandlePy, "TaskHandle"));
+
+	ompd_frame_info_t exit_frame;
+	ompd_frame_info_t enter_frame;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_task_frame(task_handle, &exit_frame, &enter_frame);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_task_frame(0xdeadbeef, &exit_frame, &enter_frame);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL exit and enter frame.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_task_frame(task_handle, NULL, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_error or stale handle for NULL task_handle.\n");
+	rc = ompd_get_task_frame(NULL, &exit_frame, &enter_frame);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_state
+
+	Program:
+		program:
+		1.		#include <stdio.h>
+		2.		#include <omp.h>
+		3.		int main () {
+		4.				omp_set_num_threads(4);
+		5.				#pragma omp parallel
+		6.				{
+		7.						printf ("Parallel level 1, thread num = %d", omp_get_thread_num());
+		8.				}
+		9.			   return 0;
+		10.		}
+
+	GDB Commands:
+		ompd init
+		b 7
+		c
+		ompdtestapi ompd_get_state
+
+*/
+PyObject* test_ompd_get_state (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_state\"...\n");
+
+	PyObject* threadHandlePy = PyTuple_GetItem(args, 0);
+	ompd_thread_handle_t* thread_handle = (ompd_thread_handle_t*) (PyCapsule_GetPointer(threadHandlePy, "ThreadHandle"));
+
+	ompd_word_t state;
+	ompt_wait_id_t wait_id;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_state (thread_handle, &state, &wait_id);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_state (0xdeadbeef, &state, &wait_id);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL wait_id.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_state (thread_handle, &state, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_error or stale handle for NULL thread_handle.\n");
+	rc = ompd_get_state (NULL, &state, &wait_id);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_display_control_vars
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_get_display_control_vars
+
+*/
+PyObject* test_ompd_get_display_control_vars (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_display_control_vars\" ...\n");
+
+	PyObject* addrSpaceTup = PyTuple_GetItem(args, 0);
+	ompd_address_space_handle_t* addr_handle = (ompd_address_space_handle_t*) PyCapsule_GetPointer(addrSpaceTup, "AddressSpace");
+
+	const char const **control_vars;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_display_control_vars (addr_handle, &control_vars);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	} else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_display_control_vars (0xdeadbeef, &control_vars);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting stale handle or bad_input for NULL addr_handle.\n");
+	rc = ompd_get_display_control_vars (NULL, &control_vars);
+	if ((rc != ompd_rc_bad_input) && (rc != ompd_rc_stale_handle))
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	#if ABORTHANDLED
+	printf ("Test: Expecting ompd_rc_error or bad_input for NULL control_vars.\n");
+	rc = ompd_get_display_control_vars (addr_handle, NULL);
+	if (rc != ompd_rc_error && rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_rel_display_control_vars
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_rel_display_control_vars
+
+*/
+PyObject* test_ompd_rel_display_control_vars (PyObject* self, PyObject* noargs)
+{
+	printf ("Testing Not enabled for \"ompd_rel_display_control_vars\".\n");
+	printf ("Skipping.\n");
+
+	return Py_None;
+}
+
+/*
+   Test API: ompd_enumerate_icvs
+
+	Program:
+		program:
+		1.		#include <stdio.h>
+		2.		#include <omp.h>
+		3.		int main () {
+		4.				omp_set_num_threads(4);
+		5.				#pragma omp parallel
+		6.				{
+		7.						printf ("Parallel level 1, thread num = %d", omp_get_thread_num());
+		8.				}
+		9.			   return 0;
+		10.		}
+
+	GDB Commands:
+		ompd init
+		b 7
+		c
+		ompdtestapi ompd_enumerate_icvs
+
+*/
+
+PyObject* test_ompd_enumerate_icvs (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_enumerate_icvs\"...\n");
+
+	PyObject* addrSpaceTup = PyTuple_GetItem(args, 0);
+	ompd_address_space_handle_t* addr_handle = (ompd_address_space_handle_t*) PyCapsule_GetPointer(addrSpaceTup, "AddressSpace");
+
+	ompd_icv_id_t current = 0; // To begin enumerating the ICVs, a tool should pass ompd_icv_undefined as the value of current
+	ompd_icv_id_t next_id;
+	const char *next_icv_name;
+	ompd_scope_t next_scope;
+	int more;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_enumerate_icvs (addr_handle, current, &next_id, &next_icv_name, &next_scope, &more);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	//ompd_rc_bad_input if an unknown value is provided in current
+	printf ("Test: Unknown current value.\n");
+	rc = ompd_enumerate_icvs (addr_handle, -1/*unknown current value */, &next_id, &next_icv_name, &next_scope, &more);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_enumerate_icvs (0xdeadbeef, current, &next_id, &next_icv_name, &next_scope, &more);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL next_id and next_icv_name\n");
+	#if ABORTHANDLED
+	rc = ompd_enumerate_icvs (addr_handle, current, NULL, NULL, &next_scope, &more);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	#endif
+
+	printf ("Test: Expecting ompd_rc_error or stale_handle for NULL addr_handle.\n");
+	rc = ompd_enumerate_icvs (NULL, current, &next_id, &next_icv_name, &next_scope, &more);
+	if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+/*
+	Test API: ompd_get_icv_from_scope
+
+	Program:
+		1 #include <stdio.h>
+		2 #include <omp.h>
+		3 int get_fib_num (int num)
+		4 {
+		5	  int t1, t2;
+		6	  if (num < 2)
+		7		  return num;
+		8	  else {
+		9		  #pragma omp task shared(t1)
+		10		   t1 = get_fib_num(num-1);
+		11		   #pragma omp task shared(t2)
+		12		   t2 = get_fib_num(num-2);
+		13		   #pragma omp taskwait
+		14		   return t1+t2;
+		15	   }
+		16 }
+		17
+		18 int main () {
+		19	   int ret = 0;
+		20	   omp_set_num_threads(2);
+		21	   #pragma omp parallel
+		22	   {
+		23		   ret = get_fib_num(10);
+		24	   }
+		25	   printf ("Fib of 10 is %d", ret);
+		26	  return 0;
+		27 }
+
+	GDB Commands:
+		ompd init
+		b 10
+		c
+		ompdtestapi ompd_get_icv_from_scope
+
+*/
+PyObject* test_ompd_get_icv_from_scope_with_addr_handle (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_icv_from_scope with addr_handle\"...\n");
+
+	PyObject* addrSpaceTup = PyTuple_GetItem(args, 0);
+	ompd_address_space_handle_t* addr_handle = (ompd_address_space_handle_t*) PyCapsule_GetPointer(addrSpaceTup, "AddressSpace");
+
+	ompd_word_t icv_value;
+
+	printf ("Test: With Correct Arguments.\n");
+	// cannot import enum ompd_icv from omp-icv.cpp, hardcoding as of now, if enum changes it also requires modification
+	ompd_rc_t rc = ompd_get_icv_from_scope (addr_handle, ompd_scope_address_space,
+					 17 /* ompd_icv_num_procs_var: check enum ompd_icv in omp-icv.cpp */, &icv_value);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	// ompd_rc_bad_input if an unknown value is provided in icv_id.
+	printf ("Test: bad_input for unknown icv_id.\n");
+	rc = ompd_get_icv_from_scope (addr_handle, ompd_scope_address_space, 99 /*wrong value*/, &icv_value);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	// ompd_rc_incompatible if the ICV cannot be represented as an integer;
+	printf ("Test: rc_incompatible for ICV that cant be represented as an integer.\n");
+	rc = ompd_get_icv_from_scope (addr_handle, ompd_scope_address_space,
+									11 /*ompd_icv_tool_libraries_var*/,  &icv_value);
+	if (rc != ompd_rc_incompatible)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_icv_from_scope (0xdeadbeef, ompd_scope_address_space, 17/*ompd_icv_num_procs_var*/, &icv_value);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	return Py_None;
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL icv_value.\n");
+	rc = ompd_get_icv_from_scope (addr_handle, ompd_scope_address_space, 17/*ompd_icv_num_procs_var*/, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Expecting ompd_rc_error for NULL handle.\n");
+	rc = ompd_get_icv_from_scope (NULL, ompd_scope_address_space, 17/*ompd_icv_num_procs_var*/, &icv_value);
+	if (rc != ompd_rc_error)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+PyObject* test_ompd_get_icv_from_scope_with_thread_handle (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_icv_from_scope with thread_handle\"...\n");
+
+	PyObject* threadHandlePy = PyTuple_GetItem(args, 0);
+	ompd_thread_handle_t* thread_handle = (ompd_thread_handle_t*) (PyCapsule_GetPointer(threadHandlePy, "ThreadHandle"));
+
+	ompd_word_t icv_value;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_icv_from_scope (thread_handle, ompd_scope_thread,
+					 18/* ompd_icv_thread_num_var  check enum ompd_icv in omp-icv.cpp */, &icv_value);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	printf ("Test: with nthreads_var for ompd_rc_incomplete.\n");
+	rc = ompd_get_icv_from_scope (thread_handle, ompd_scope_thread, 6 /*ompd_icv_nthreads_var*/, &icv_value);
+	if (rc != ompd_rc_incomplete){
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+
+PyObject* test_ompd_get_icv_from_scope_with_parallel_handle (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_icv_from_scope with parallel_handle\"...\n");
+
+	PyObject* parallelHandlePy = PyTuple_GetItem(args, 0);
+	ompd_parallel_handle_t* parallel_handle = (ompd_parallel_handle_t*)(PyCapsule_GetPointer(parallelHandlePy, "ParallelHandle"));
+
+	ompd_word_t icv_value;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_icv_from_scope (parallel_handle, ompd_scope_parallel,
+					 13/*ompd_icv_active_levels_var:check enum ompd_icv in omp-icv.cpp */, &icv_value);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+PyObject* test_ompd_get_icv_from_scope_with_task_handle (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_icv_from_scope with task_handle\"...\n");
+
+	PyObject* taskHandlePy = PyTuple_GetItem(args, 0);
+	ompd_task_handle_t* task_handle = (ompd_task_handle_t*)(PyCapsule_GetPointer(taskHandlePy, "TaskHandle"));
+
+	ompd_word_t icv_value;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_icv_from_scope (task_handle, ompd_scope_task,
+					 14/*ompd_icv_thread_limit_var: check enum ompd_icv in omp-icv.cpp */, &icv_value);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+/*
+   Test API: ompd_get_icv_string_from_scope
+
+	Program:
+		program:
+		1.		#include <stdio.h>
+		2.		#include <omp.h>
+		3.		int main () {
+		4.				omp_set_num_threads(4);
+		5.				#pragma omp parallel
+		6.				{
+		7.						printf ("Parallel level 1, thread num = %d", omp_get_thread_num());
+		8.				}
+		9.			   return 0;
+		10.		}
+
+	GDB Commands:
+		ompd init
+		b 7
+		c
+		ompdtestapi ompd_get_icv_string_from_scope
+
+*/
+PyObject* test_ompd_get_icv_string_from_scope (PyObject* self, PyObject* args)
+{
+	printf ("Testing \"ompd_get_icv_string_from_scope\"...\n");
+
+	PyObject* addrSpaceTup = PyTuple_GetItem(args, 0);
+	ompd_address_space_handle_t* addr_handle = (ompd_address_space_handle_t*) PyCapsule_GetPointer(addrSpaceTup, "AddressSpace");
+
+	const char *icv_string;
+
+	printf ("Test: With Correct Arguments.\n");
+	ompd_rc_t rc = ompd_get_icv_string_from_scope (addr_handle, ompd_scope_address_space,
+					 11 /*ompd_icv_tool_libraries_var: check enum ompd_icv in omp-icv.cpp */, &icv_string);
+	if (rc != ompd_rc_ok) {
+		printf ("Failed. with return code = %d\n", rc);
+		return Py_None;
+	}else
+		printf ("Success.\n");
+
+	// ompd_rc_bad_input if an unknown value is provided in icv_id.
+	printf ("Test: bad_input for unknown icv_id.\n");
+	rc = ompd_get_icv_string_from_scope (addr_handle, ompd_scope_address_space, 99 /*wrong value*/, &icv_string);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	// Random checks with  null and invalid args.
+	/*
+		ompd_rc_stale_handle:	is returned when the specified handle is no longer valid;
+		ompd_rc_bad_input:		is returned when the input parameters (other than handle) are invalid;
+		ompd_rc_error:			is returned when a fatal error occurred;
+	*/
+	printf ("Test: Expecting stale handle for 0xdeadbeef.\n");
+	#if ABORTHANDLED
+	rc = ompd_get_icv_string_from_scope (0xdeadbeef, ompd_scope_address_space, 11 /*ompd_icv_tool_libraries_var*/, &icv_string);
+	if (rc != ompd_rc_stale_handle)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+	#else
+	printf ("Skipped. Aborted, not handled.\n");
+	return Py_None;
+	#endif
+
+	printf ("Test: Expecting ompd_rc_bad_input for NULL icv_string.\n");
+	rc = ompd_get_icv_string_from_scope (addr_handle, ompd_scope_address_space, 11 /*ompd_icv_tool_libraries_var*/, NULL);
+	if (rc != ompd_rc_bad_input)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	printf ("Test: Expecting ompd_rc_error for NULL handle.\n");
+	rc = ompd_get_icv_string_from_scope (NULL, ompd_scope_address_space, 11 /*ompd_icv_tool_libraries_var*/, &icv_string);
+	if (rc != ompd_rc_error)
+		printf ("Failed. with return code = %d\n", rc);
+	else
+		printf ("Success.\n");
+
+	return Py_None;
+}
+
+PyObject* test_ompd_get_tool_data (PyObject* self, PyObject* args)
+{
+	printf ("Testing Not enabled for \"ompd_get_tool_data\".\n");
+	printf ("Skipping.\n");
+
+	return Py_None;
+}
+PyObject* test_ompd_enumerate_states (PyObject* self, PyObject* args)
+{
+	printf ("Testing Not enabled for \"ompd_get_tool_data\".\n");
+	printf ("Skipping.\n");
+
+	return Py_None;
+}
