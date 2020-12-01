@@ -8,7 +8,7 @@
 #include <errno.h>
 #include <pthread.h>
 
-static void* ompd_library;
+void* ompd_library;
 
 #define OMPD_WEAK_ATTR __attribute__((weak))
 
@@ -32,8 +32,68 @@ OMPD_WEAK_ATTR ompd_rc_t ompd_get_api_version(ompd_word_t * addr) {
 	return my_get_api_version(addr);
 }
 
-OMPD_WEAK_ATTR ompd_rc_t ompd_get_thread_handle(ompd_address_space_handle_t* handle, 
-				      ompd_thread_id_t kind, ompd_size_t tidSize, 
+OMPD_WEAK_ATTR ompd_rc_t ompd_get_version_string (const char **string) {
+	static ompd_rc_t (*my_get_version_string) (const char **) = NULL;
+	if (!my_get_version_string){
+		my_get_version_string = dlsym (ompd_library, "ompd_get_version_string");
+		if (dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_get_version_string(string);
+}
+
+OMPD_WEAK_ATTR ompd_rc_t ompd_finalize(void) {
+	static ompd_rc_t (*my_ompd_finalize)(void) = NULL;
+	if (!my_ompd_finalize){
+		my_ompd_finalize = dlsym (ompd_library, "ompd_finalize");
+		if (dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_ompd_finalize();
+}
+
+OMPD_WEAK_ATTR ompd_rc_t ompd_process_initialize( ompd_address_space_context_t *context,
+			 ompd_address_space_handle_t **handle ){
+	static ompd_rc_t (*my_ompd_process_initialize)(ompd_address_space_context_t*,
+							 ompd_address_space_handle_t**) = NULL;
+	if (!my_ompd_process_initialize) {
+		my_ompd_process_initialize = dlsym (ompd_library, "my_ompd_process_initialize");
+		if (dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_ompd_process_initialize(context, handle);
+}
+
+OMPD_WEAK_ATTR ompd_rc_t ompd_get_omp_version (ompd_address_space_handle_t *address_space,
+ ompd_word_t *omp_version) {
+	static ompd_rc_t (*my_ompd_get_omp_version)(ompd_address_space_handle_t*, ompd_word_t*) = NULL;
+	if (!my_ompd_get_omp_version) {
+		my_ompd_get_omp_version = dlsym (ompd_library, "ompd_get_omp_version");
+		if (dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_ompd_get_omp_version (address_space, omp_version);
+}
+
+OMPD_WEAK_ATTR ompd_rc_t ompd_get_omp_version_string (ompd_address_space_handle_t *address_space,
+								  const char **string) {
+	static ompd_rc_t (*my_ompd_get_omp_version_string)(ompd_address_space_handle_t*, const char **) = NULL;
+	if (!my_ompd_get_omp_version_string) {
+		my_ompd_get_omp_version_string = dlsym (ompd_library, "ompd_get_omp_version_string");
+		if (dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_ompd_get_omp_version_string (address_space, string);
+}
+
+
+OMPD_WEAK_ATTR ompd_rc_t ompd_get_thread_handle(ompd_address_space_handle_t* handle,
+				      ompd_thread_id_t kind, ompd_size_t tidSize,
 				      const void* tid, ompd_thread_handle_t** threadHandle) {
 	static ompd_rc_t (*my_get_thread_handle)(ompd_address_space_handle_t*, ompd_thread_id_t, ompd_size_t, const void*, ompd_thread_handle_t**) = NULL;
 	if(!my_get_thread_handle) {
@@ -58,6 +118,19 @@ OMPD_WEAK_ATTR ompd_rc_t ompd_get_thread_in_parallel(ompd_parallel_handle_t* par
 	return my_get_thread_in_parallel(parallelHandle, threadNum, threadHandle);
 }
 
+OMPD_WEAK_ATTR ompd_rc_t ompd_thread_handle_compare (ompd_thread_handle_t* thread_handle1,
+							 ompd_thread_handle_t* thread_handle2, int* cmp_value) {
+	static ompd_rc_t (*my_thread_handle_compare)(ompd_thread_handle_t*, ompd_thread_handle_t*, int*) = NULL;
+	if(!my_thread_handle_compare) {
+		my_thread_handle_compare = dlsym(ompd_library, "ompd_thread_handle_compare");
+		if(dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_thread_handle_compare (thread_handle1, thread_handle2, cmp_value);
+}
+
+
 OMPD_WEAK_ATTR ompd_rc_t ompd_get_curr_parallel_handle(ompd_thread_handle_t* threadHandle,
 							  ompd_parallel_handle_t** parallelHandle) {
 	static ompd_rc_t (*my_get_current_parallel_handle)(ompd_thread_handle_t*, ompd_parallel_handle_t**) = NULL;
@@ -68,6 +141,19 @@ OMPD_WEAK_ATTR ompd_rc_t ompd_get_curr_parallel_handle(ompd_thread_handle_t* thr
 		}
 	}
 	return my_get_current_parallel_handle(threadHandle, parallelHandle);
+}
+
+OMPD_WEAK_ATTR ompd_rc_t ompd_parallel_handle_compare(ompd_parallel_handle_t *parallel_handle_1,
+                              ompd_parallel_handle_t *parallel_handle_2,
+                              int *cmp_value) {
+	static ompd_rc_t (*my_parallel_handle_compare) (ompd_parallel_handle_t *, ompd_parallel_handle_t *, int*) = NULL;
+	if (!my_parallel_handle_compare) {
+		my_parallel_handle_compare = dlsym(ompd_library, "ompd_parallel_handle_compare");
+		if(dlerror()) {
+			return ompd_rc_error;
+		}
+	}
+	return my_parallel_handle_compare (parallel_handle_1, parallel_handle_2, cmp_value);
 }
 
 OMPD_WEAK_ATTR ompd_rc_t ompd_get_enclosing_parallel_handle(ompd_parallel_handle_t* parallelHandle,
@@ -1162,6 +1248,26 @@ static PyObject* call_ompd_get_icv_string_from_scope(PyObject* self, PyObject* a
 	return PyUnicode_FromString(icvString);
 }
 
+// Prototypes of API test functions.
+PyObject* test_ompd_get_thread_handle(PyObject* self, PyObject* args);
+PyObject* test_ompd_get_curr_parallel_handle (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_thread_in_parallel (PyObject* self, PyObject* args);
+PyObject* test_ompd_thread_handle_compare (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_thread_id (PyObject* self, PyObject* args);
+PyObject* test_ompd_rel_thread_handle (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_enclosing_parallel_handle (PyObject* self, PyObject* args);
+PyObject* test_ompd_parallel_handle_compare (PyObject* self, PyObject* args);
+PyObject* test_ompd_rel_parallel_handle (PyObject* self, PyObject* args);
+PyObject* test_ompd_initialize (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_api_version(PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_version_string (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_finalize (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_process_initialize (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_device_initialize (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_rel_address_space_handle (PyObject* self, PyObject* noargs);
+PyObject* test_ompd_get_omp_version (PyObject* self, PyObject* args);
+PyObject* test_ompd_get_omp_version_string (PyObject* self, PyObject* args);
+
 /**
  * Binds Python function names to C functions.
  */
@@ -1190,6 +1296,26 @@ static PyMethodDef ompdModule_methods[] = {
 	{"call_ompd_get_thread_id", call_ompd_get_thread_id, METH_VARARGS, "Maps an OMPD thread handle to a native thread."},
 	{"call_ompd_get_tool_data", call_ompd_get_tool_data, METH_VARARGS, "Returns value and pointer of ompd_data_t for given scope and handle."},
 	{"call_ompd_get_icv_string_from_scope", call_ompd_get_icv_string_from_scope, METH_VARARGS, "Gets ICV string representation from scope."},
+
+	{"test_ompd_get_thread_handle", test_ompd_get_thread_handle, METH_VARARGS, "Test API ompd_get_thread_handle."},
+	{"test_ompd_get_curr_parallel_handle", test_ompd_get_curr_parallel_handle, METH_VARARGS, "Test API test_ompd_get_curr_parallel_handle."},
+	{"test_ompd_get_thread_in_parallel", test_ompd_get_thread_in_parallel, METH_VARARGS, "Test API ompd_get_thread_in_parallel."},
+	{"test_ompd_thread_handle_compare", test_ompd_thread_handle_compare, METH_VARARGS, "Test API ompd_thread_handle_compare."},
+	{"test_ompd_get_thread_id", test_ompd_get_thread_id, METH_VARARGS, "Test API ompd_get_thread_id."},
+	{"test_ompd_rel_thread_handle", test_ompd_rel_thread_handle, METH_VARARGS, "Test API ompd_rel_thread_handle."},
+	{"test_ompd_get_enclosing_parallel_handle", test_ompd_get_enclosing_parallel_handle, METH_VARARGS, "Test API ompd_get_enclosing_parallel_handle."},
+	{"test_ompd_parallel_handle_compare", test_ompd_parallel_handle_compare, METH_VARARGS, "Test API test_ompd_parallel_handle_compare."},
+	{"test_ompd_rel_parallel_handle", test_ompd_rel_parallel_handle, METH_VARARGS, "Test API ompd_rel_parallel_handle."},
+
+	{"test_ompd_initialize", test_ompd_initialize, METH_VARARGS, "Test API ompd_initialize."},
+	{"test_ompd_get_api_version", test_ompd_get_api_version, METH_VARARGS, "Test API ompd_get_api_version."},
+	{"test_ompd_get_version_string", test_ompd_get_version_string, METH_VARARGS, "Test API ompd_get_version_string."},
+	{"test_ompd_finalize", test_ompd_finalize, METH_VARARGS, "Test API ompd_finalize."},
+	{"test_ompd_process_initialize", test_ompd_process_initialize, METH_VARARGS, "Test API ompd_process_initialize. "},
+	{"test_ompd_device_initialize", test_ompd_device_initialize, METH_VARARGS, "Test API ompd_device_initialize."},
+	{"test_ompd_rel_address_space_handle", test_ompd_rel_address_space_handle, METH_VARARGS, "Test API ompd_rel_address_space_handle."},
+	{"test_ompd_get_omp_version", test_ompd_get_omp_version, METH_VARARGS, "Test API ompd_get_omp_version."},
+	{"test_ompd_get_omp_version_string", test_ompd_get_omp_version_string, METH_VARARGS, "Test API ompd_get_omp_version_string."},
 	{NULL, NULL, 0, NULL}
 };
 

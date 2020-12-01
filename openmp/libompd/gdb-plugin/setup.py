@@ -11,5 +11,5 @@ setup(
     version='1.0',
     py_modules=['loadompd'],
     packages=find_packages(),
-	ext_modules=[Extension('ompd.ompdModule', [dir_path+'/ompdModule.c'], include_dirs=[omp_include_dir])]
+	ext_modules=[Extension('ompd.ompdModule', [dir_path+'/ompdModule.c', dir_path+'/ompdAPITests.c'], include_dirs=[omp_include_dir])]
 )

@@ -1,0 +1,3 @@
+ompd init
+b test_ompd_device_initialize.c:10
+ompdtestapi ompd_device_initialize
