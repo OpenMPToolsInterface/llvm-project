@@ -27,16 +27,16 @@ class OmpdFrameDecorator(FrameDecorator):
 		"""This appends the name of a frame that is printed with the information whether the task started in the frame 
 		is implicit or explicit. The ICVs are evaluated to determine that.
 		"""
-		name = self.fobj.name()
+		name = str(self.fobj.name())
 		
 		if self.curr_task_handle is None:
 			return name
 		
 		icv_value = ompdModule.call_ompd_get_icv_from_scope(self.curr_task_handle, ompd.icv_map['ompd-implicit-var'][1], ompd.icv_map['ompd-implicit-var'][0])
 		if icv_value == 0:
-			name = '@thread %i: "#pragma omp task"' % gdb.selected_thread().num
+			name = '@thread %i: %s "#pragma omp task"' % (gdb.selected_thread().num, name)
 		elif icv_value == 1:
-			name = '@thread %i: "#pragma omp parallel"' % gdb.selected_thread().num
+			name = '@thread %i: %s "#pragma omp parallel"' % (gdb.selected_thread().num, name)
 		else:
 			name = '@thread %i: %s' % (gdb.selected_thread().num, name)
 		return name
