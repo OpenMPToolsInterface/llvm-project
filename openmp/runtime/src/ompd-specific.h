@@ -84,6 +84,9 @@ OMPD_ACCESS(kmp_team_p,           t) \
 OMPD_ACCESS(kmp_nested_nthreads_t, used) \
 OMPD_ACCESS(kmp_nested_nthreads_t, nth) \
 \
+OMPD_ACCESS(kmp_nested_proc_bind_t, used) \
+OMPD_ACCESS(kmp_nested_proc_bind_t, bind_types) \
+\
 OMPD_ACCESS(ompt_task_info_t,     frame) \
 OMPD_ACCESS(ompt_task_info_t,     scheduling_parent) \
 OMPD_ACCESS(ompt_task_info_t,     task_data) \
@@ -144,6 +147,8 @@ OMPD_SIZEOF(__kmp_tool) \
 OMPD_SIZEOF(ompd_state) \
 OMPD_SIZEOF(kmp_nested_nthreads_t) \
 OMPD_SIZEOF(__kmp_nested_nth) \
+OMPD_SIZEOF(kmp_nested_proc_bind_t) \
+OMPD_SIZEOF(__kmp_nested_proc_bind) \
 OMPD_SIZEOF(int) \
 OMPD_SIZEOF(char) \
 OMPD_SIZEOF(__kmp_gtid) \
