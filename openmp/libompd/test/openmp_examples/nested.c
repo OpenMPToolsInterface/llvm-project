@@ -12,7 +12,7 @@ int main()
     int number;
     int i;
     omp_set_num_threads(3);
-    omp_set_nested(1); // 1 - enables nested parallelism; 0 - disables nested parallelism.
+    omp_set_max_active_levels(10);
 
     #pragma omp parallel // parallel region begins
     {        

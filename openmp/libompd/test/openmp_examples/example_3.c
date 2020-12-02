@@ -15,7 +15,7 @@ void bar()
 
 void foo()
 {
-  omp_set_nested(1);
+  omp_set_max_active_levels(10);
   #pragma omp parallel num_threads(2)
   {
     if (omp_get_thread_num() == 0) 
