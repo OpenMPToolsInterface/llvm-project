@@ -31,7 +31,7 @@ int main()
 {
   printf("Application: Process %d started.\n", getpid());
   omp_set_num_threads(8);
-  omp_set_nested(1); // 1:enables nested parall.; 0:disables nested parall.
+  omp_set_max_active_levels(10);
 
 #pragma omp parallel sections
 {
