@@ -44,6 +44,7 @@ GNU binutils replacements
    llvm-addr2line
    llvm-ar
    llvm-cxxfilt
+   llvm-install-name-tool
    llvm-nm
    llvm-objcopy
    llvm-objdump
@@ -72,7 +73,7 @@ Developer Tools
    FileCheck
    tblgen
    lit
-   llvm-build
    llvm-exegesis
-   llvm-pdbutil
    llvm-locstats
+   llvm-pdbutil
+   llvm-profgen

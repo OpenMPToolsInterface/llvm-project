@@ -216,6 +216,8 @@ class VectorType;
       VMULLs,       // ...signed
       VMULLu,       // ...unsigned
 
+      VQDMULH,      // MVE vqdmulh instruction
+
       // MVE reductions
       VADDVs,       // sign- or zero-extend the elements of a vector to i32,
       VADDVu,       //   add them all together, and return an i32 of their sum
@@ -241,6 +243,10 @@ class VectorType;
       VMLALVAu,     //   provided as low and high halves
       VMLALVAps,    // Same as VMLALVA[su] with a v4i1 predicate mask
       VMLALVApu,
+      VMINVu,        // Find minimum unsigned value of a vector and register
+      VMINVs,        // Find minimum signed value of a vector and register
+      VMAXVu,        // Find maximum unsigned value of a vector and register
+      VMAXVs,        // Find maximum signed value of a vector and register
 
       SMULWB,       // Signed multiply word by half word, bottom
       SMULWT,       // Signed multiply word by half word, top
@@ -527,12 +533,6 @@ class VectorType;
     /// specified value type.
     const TargetRegisterClass *
     getRegClassFor(MVT VT, bool isDivergent = false) const override;
-
-    /// Returns true if a cast between SrcAS and DestAS is a noop.
-    bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const override {
-      // Addrspacecasts are always noops.
-      return true;
-    }
 
     bool shouldAlignPointerArgs(CallInst *CI, unsigned &MinSize,
                                 unsigned &PrefAlign) const override;

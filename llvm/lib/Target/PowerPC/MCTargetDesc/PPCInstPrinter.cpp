@@ -49,18 +49,6 @@ FullRegNamesWithPercent("ppc-reg-with-percent-prefix", cl::Hidden,
 
 void PPCInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
   const char *RegName = getRegisterName(RegNo);
-  if (RegName[0] == 'q' /* QPX */) {
-    // The system toolchain on the BG/Q does not understand QPX register names
-    // in .cfi_* directives, so print the name of the floating-point
-    // subregister instead.
-    std::string RN(RegName);
-
-    RN[0] = 'f';
-    OS << RN;
-
-    return;
-  }
-
   OS << RegName;
 }
 
@@ -196,12 +184,18 @@ void PPCInstPrinter::printInst(const MCInst *MI, uint64_t Address,
 
   if (MI->getOpcode() == PPC::DCBF) {
     unsigned char L = MI->getOperand(0).getImm();
-    if (!L || L == 1 || L == 3) {
-      O << "\tdcbf";
-      if (L == 1 || L == 3)
+    if (!L || L == 1 || L == 3 || L == 4 || L == 6) {
+      O << "\tdcb";
+      if (L != 6)
+        O << "f";
+      if (L == 1)
         O << "l";
       if (L == 3)
-        O << "p";
+        O << "lp";
+      if (L == 4)
+        O << "ps";
+      if (L == 6)
+        O << "stps";
       O << " ";
 
       printOperand(MI, 1, O);
@@ -543,10 +537,17 @@ void PPCInstPrinter::printTLSCall(const MCInst *MI, unsigned OpNo,
     RefExp = cast<MCSymbolRefExpr>(Op.getExpr());
 
   O << RefExp->getSymbol().getName();
+  // The variant kind VK_PPC_NOTOC needs to be handled as a special case
+  // because we do not want the assembly to print out the @notoc at the
+  // end like __tls_get_addr(x@tlsgd)@notoc. Instead we want it to look
+  // like __tls_get_addr@notoc(x@tlsgd).
+  if (RefExp->getKind() == MCSymbolRefExpr::VK_PPC_NOTOC)
+    O << '@' << MCSymbolRefExpr::getVariantKindName(RefExp->getKind());
   O << '(';
   printOperand(MI, OpNo+1, O);
   O << ')';
-  if (RefExp->getKind() != MCSymbolRefExpr::VK_None)
+  if (RefExp->getKind() != MCSymbolRefExpr::VK_None &&
+      RefExp->getKind() != MCSymbolRefExpr::VK_PPC_NOTOC)
     O << '@' << MCSymbolRefExpr::getVariantKindName(RefExp->getKind());
   if (ConstExp != nullptr)
     O << '+' << ConstExp->getValue();

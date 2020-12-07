@@ -18,9 +18,9 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
@@ -80,8 +80,9 @@ bool isTopLevelValue(Value value);
 // multiple stride levels (possibly using AffineMaps to specify multiple levels
 // of striding).
 // TODO: Consider replacing src/dst memref indices with view memrefs.
-class AffineDmaStartOp : public Op<AffineDmaStartOp, OpTrait::VariadicOperands,
-                                   OpTrait::ZeroResult> {
+class AffineDmaStartOp
+    : public Op<AffineDmaStartOp, OpTrait::MemRefsNormalizable,
+                OpTrait::VariadicOperands, OpTrait::ZeroResult> {
 public:
   using Op::Op;
 
@@ -268,8 +269,9 @@ public:
 //   ...
 //   affine.dma_wait %tag[%index], %num_elements : memref<1xi32, 2>
 //
-class AffineDmaWaitOp : public Op<AffineDmaWaitOp, OpTrait::VariadicOperands,
-                                  OpTrait::ZeroResult> {
+class AffineDmaWaitOp
+    : public Op<AffineDmaWaitOp, OpTrait::MemRefsNormalizable,
+                OpTrait::VariadicOperands, OpTrait::ZeroResult> {
 public:
   using Op::Op;
 
@@ -335,6 +337,11 @@ bool isValidSymbol(Value value);
 /// for all its uses in `region`.
 bool isValidSymbol(Value value, Region *region);
 
+/// Parses dimension and symbol list and returns true if parsing failed.
+ParseResult parseDimAndSymbolList(OpAsmParser &parser,
+                                  SmallVectorImpl<Value> &operands,
+                                  unsigned &numDims);
+
 /// Modifies both `map` and `operands` in-place so as to:
 /// 1. drop duplicate operands
 /// 2. drop unused dims and symbols from map
@@ -370,7 +377,8 @@ void fullyComposeAffineMapAndOperands(AffineMap *map,
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Affine/IR/AffineOps.h.inc"
 
-/// Returns if the provided value is the induction variable of a AffineForOp.
+/// Returns true if the provided value is the induction variable of a
+/// AffineForOp.
 bool isForInductionVar(Value val);
 
 /// Returns the loop parent of an induction variable. If the provided value is

@@ -44,6 +44,16 @@ public:
   SubscriptValue UpperBound() const { return LowerBound() + Extent() - 1; }
   SubscriptValue ByteStride() const { return raw_.sm; }
 
+  Dimension &SetBounds(SubscriptValue lower, SubscriptValue upper) {
+    raw_.lower_bound = lower;
+    raw_.extent = upper >= lower ? upper - lower + 1 : 0;
+    return *this;
+  }
+  Dimension &SetByteStride(SubscriptValue bytes) {
+    raw_.sm = bytes;
+    return *this;
+  }
+
 private:
   ISO::CFI_dim_t raw_;
 };
@@ -255,6 +265,7 @@ public:
     }
   }
 
+  // Returns size in bytes of the descriptor (not the data)
   static constexpr std::size_t SizeInBytes(
       int rank, bool addendum = false, int lengthTypeParameters = 0) {
     std::size_t bytes{sizeof(Descriptor) - sizeof(Dimension)};
@@ -270,6 +281,7 @@ public:
   std::size_t Elements() const;
 
   // TODO: SOURCE= and MOLD=
+  int Allocate();
   int Allocate(const SubscriptValue lb[], const SubscriptValue ub[]);
   int Deallocate(bool finalize = true);
   void Destroy(char *data, bool finalize = true) const;

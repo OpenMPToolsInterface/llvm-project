@@ -798,9 +798,8 @@ void CodeGenFunction::EmitAsanPrologueOrEpilogue(bool Prologue) {
   size_t NumFields = 0;
   for (const auto *Field : ClassDecl->fields()) {
     const FieldDecl *D = Field;
-    std::pair<CharUnits, CharUnits> FieldInfo =
-        Context.getTypeInfoInChars(D->getType());
-    CharUnits FieldSize = FieldInfo.first;
+    auto FieldInfo = Context.getTypeInfoInChars(D->getType());
+    CharUnits FieldSize = FieldInfo.Width;
     assert(NumFields < SSV.size());
     SSV[NumFields].Size = D->isBitField() ? 0 : FieldSize.getQuantity();
     NumFields++;
@@ -947,7 +946,7 @@ namespace {
           LastField->isBitField()
               ? LastField->getBitWidthValue(Ctx)
               : Ctx.toBits(
-                    Ctx.getTypeInfoDataSizeInChars(LastField->getType()).first);
+                    Ctx.getTypeInfoDataSizeInChars(LastField->getType()).Width);
       uint64_t MemcpySizeBits = LastFieldOffset + LastFieldSize -
                                 FirstByteOffset + Ctx.getCharWidth() - 1;
       CharUnits MemcpySize = Ctx.toCharUnitsFromBits(MemcpySizeBits);
@@ -1694,28 +1693,22 @@ namespace {
       // Construct pointer to region to begin poisoning, and calculate poison
       // size, so that only members declared in this class are poisoned.
       ASTContext &Context = CGF.getContext();
-      unsigned fieldIndex = 0;
-      int startIndex = -1;
-      // RecordDecl::field_iterator Field;
-      for (const FieldDecl *Field : Dtor->getParent()->fields()) {
-        // Poison field if it is trivial
-        if (FieldHasTrivialDestructorBody(Context, Field)) {
-          // Start sanitizing at this field
-          if (startIndex < 0)
-            startIndex = fieldIndex;
 
-          // Currently on the last field, and it must be poisoned with the
-          // current block.
-          if (fieldIndex == Layout.getFieldCount() - 1) {
-            PoisonMembers(CGF, startIndex, Layout.getFieldCount());
-          }
-        } else if (startIndex >= 0) {
-          // No longer within a block of memory to poison, so poison the block
-          PoisonMembers(CGF, startIndex, fieldIndex);
-          // Re-set the start index
-          startIndex = -1;
-        }
-        fieldIndex += 1;
+      const RecordDecl *Decl = Dtor->getParent();
+      auto Fields = Decl->fields();
+      auto IsTrivial = [&](const FieldDecl *F) {
+        return FieldHasTrivialDestructorBody(Context, F);
+      };
+
+      for (auto It = Fields.begin(); It != Fields.end();) {
+        It = std::find_if(It, Fields.end(), IsTrivial);
+        if (It == Fields.end())
+          break;
+        auto Start = It++;
+        It = std::find_if_not(It, Fields.end(), IsTrivial);
+
+        PoisonMembers(CGF, (*Start)->getFieldIndex(),
+                      It == Fields.end() ? -1 : (*It)->getFieldIndex());
       }
     }
 
@@ -2509,12 +2502,16 @@ void CodeGenFunction::InitializeVTablePointer(const VPtr &Vptr) {
 
   // Finally, store the address point. Use the same LLVM types as the field to
   // support optimization.
+  unsigned GlobalsAS = CGM.getDataLayout().getDefaultGlobalsAddressSpace();
+  unsigned ProgAS = CGM.getDataLayout().getProgramAddressSpace();
   llvm::Type *VTablePtrTy =
       llvm::FunctionType::get(CGM.Int32Ty, /*isVarArg=*/true)
-          ->getPointerTo()
-          ->getPointerTo();
-  VTableField = Builder.CreateBitCast(VTableField, VTablePtrTy->getPointerTo());
-  VTableAddressPoint = Builder.CreateBitCast(VTableAddressPoint, VTablePtrTy);
+          ->getPointerTo(ProgAS)
+          ->getPointerTo(GlobalsAS);
+  VTableField = Builder.CreatePointerBitCastOrAddrSpaceCast(
+      VTableField, VTablePtrTy->getPointerTo(GlobalsAS));
+  VTableAddressPoint = Builder.CreatePointerBitCastOrAddrSpaceCast(
+      VTableAddressPoint, VTablePtrTy);
 
   llvm::StoreInst *Store = Builder.CreateStore(VTableAddressPoint, VTableField);
   TBAAAccessInfo TBAAInfo = CGM.getTBAAVTablePtrAccessInfo(VTablePtrTy);

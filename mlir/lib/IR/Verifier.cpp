@@ -50,7 +50,7 @@ public:
   Dialect *getDialectForAttribute(const NamedAttribute &attr) {
     assert(attr.first.strref().contains('.') && "expected dialect attribute");
     auto dialectNamePair = attr.first.strref().split('.');
-    return ctx->getRegisteredDialect(dialectNamePair.first);
+    return ctx->getLoadedDialect(dialectNamePair.first);
   }
 
 private:
@@ -148,7 +148,7 @@ LogicalResult OperationVerifier::verifyBlock(Block &block) {
   if (failed(verifyOperation(block.back())))
     return failure();
   if (block.back().isKnownNonTerminator())
-    return emitError(block, "block with no terminator");
+    return block.back().emitError("block with no terminator");
 
   // Verify that this block is not branching to a block of a different
   // region.
@@ -218,7 +218,7 @@ LogicalResult OperationVerifier::verifyOperation(Operation &op) {
   auto it = dialectAllowsUnknownOps.find(dialectPrefix);
   if (it == dialectAllowsUnknownOps.end()) {
     // If the operation dialect is registered, query it directly.
-    if (auto *dialect = ctx->getRegisteredDialect(dialectPrefix))
+    if (auto *dialect = ctx->getLoadedDialect(dialectPrefix))
       it = dialectAllowsUnknownOps
                .try_emplace(dialectPrefix, dialect->allowsUnknownOperations())
                .first;

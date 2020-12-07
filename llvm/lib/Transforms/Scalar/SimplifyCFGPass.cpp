@@ -63,8 +63,8 @@ static cl::opt<bool> UserForwardSwitchCond(
     cl::desc("Forward switch condition to phi ops (default = false)"));
 
 static cl::opt<bool> UserHoistCommonInsts(
-    "hoist-common-insts", cl::Hidden, cl::init(true),
-    cl::desc("hoist common instructions (default = true)"));
+    "hoist-common-insts", cl::Hidden, cl::init(false),
+    cl::desc("hoist common instructions (default = false)"));
 
 static cl::opt<bool> UserSinkCommonInsts(
     "sink-common-insts", cl::Hidden, cl::init(false),
@@ -232,6 +232,10 @@ static void applyCommandLineOverridesToOptions(SimplifyCFGOptions &Options) {
     Options.SinkCommonInsts = UserSinkCommonInsts;
 }
 
+SimplifyCFGPass::SimplifyCFGPass() : Options() {
+  applyCommandLineOverridesToOptions(Options);
+}
+
 SimplifyCFGPass::SimplifyCFGPass(const SimplifyCFGOptions &Opts)
     : Options(Opts) {
   applyCommandLineOverridesToOptions(Options);
@@ -241,6 +245,11 @@ PreservedAnalyses SimplifyCFGPass::run(Function &F,
                                        FunctionAnalysisManager &AM) {
   auto &TTI = AM.getResult<TargetIRAnalysis>(F);
   Options.AC = &AM.getResult<AssumptionAnalysis>(F);
+  if (F.hasFnAttribute(Attribute::OptForFuzzing)) {
+    Options.setSimplifyCondBranch(false).setFoldTwoEntryPHINode(false);
+  } else {
+    Options.setSimplifyCondBranch(true).setFoldTwoEntryPHINode(true);
+  }
   if (!simplifyFunctionCFG(F, TTI, Options))
     return PreservedAnalyses::all();
   PreservedAnalyses PA;

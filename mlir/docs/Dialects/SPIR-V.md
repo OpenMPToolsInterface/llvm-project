@@ -90,10 +90,10 @@ The SPIR-V dialect adopts the following conventions for IR:
     ops are mostly for defining the SPIR-V structure. For example, `spv.module`
     and `spv.constant`. They may correspond to one or more instructions during
     (de)serialization.
-*   Ops with `_snake_case` names are those that have no corresponding
+*   Ops with `mlir.snake_case` names are those that have no corresponding
     instructions (or concepts) in the binary format. They are introduced to
-    satisfy MLIR structural requirements. For example, `spv._module_end` and
-    `spv._merge`. They map to no instructions during (de)serialization.
+    satisfy MLIR structural requirements. For example, `spv.mlir.endmodule` and
+    `spv.mlir.merge`. They map to no instructions during (de)serialization.
 
 (TODO: consider merging the last two cases and adopting `spv.mlir.` prefix for
 them.)
@@ -159,7 +159,7 @@ instructions are represented in the SPIR-V dialect:
 
 #### Model types with MLIR custom types
 
-*   Types are represented using MLIR standard types and SPIR-V dialect specific
+*   Types are represented using MLIR builtin types and SPIR-V dialect specific
     types. There are no type declaration ops in the SPIR-V dialect. More
     discussions can be found in the [Types](#types) section later.
 
@@ -178,11 +178,11 @@ instructions are represented in the SPIR-V dialect:
 
 *   Global variables are defined with the `spv.globalVariable` op. They do not
     generate SSA values. Instead they have symbols and should be referenced via
-    symbols. To use global variables in a function block, `spv._address_of` is
+    symbols. To use global variables in a function block, `spv.mlir.addressof` is
     needed to turn the symbol into an SSA value.
 *   Specialization constants are defined with the `spv.specConstant` op. Similar
     to global variables, they do not generate SSA values and have symbols for
-    reference, too. `spv._reference_of` is needed to turn the symbol into an SSA
+    reference, too. `spv.mlir.referenceof` is needed to turn the symbol into an SSA
     value for use in a function block.
 
 The above choices enables functions in the SPIR-V dialect to be isolated and
@@ -247,9 +247,9 @@ encode them directly in the dialect-specific type.
 Theoretically we can define all SPIR-V types using MLIR extensible type system,
 but other than representational purity, it does not buy us more. Instead, we
 need to maintain the code and invest in pretty printing them. So we prefer to
-use builtin/standard types if possible.
+use builtin types if possible.
 
-The SPIR-V dialect reuses standard integer, float, and vector types:
+The SPIR-V dialect reuses builtin integer, float, and vector types:
 
 Specification                        | Dialect
 :----------------------------------: | :-------------------------------:
@@ -510,7 +510,7 @@ MLIR system.
 
 We introduce a `spv.selection` and `spv.loop` op for structured selections and
 loops, respectively. The merge targets are the next ops following them. Inside
-their regions, a special terminator, `spv._merge` is introduced for branching to
+their regions, a special terminator, `spv.mlir.merge` is introduced for branching to
 the merge target.
 
 ### Selection
@@ -522,7 +522,7 @@ merge block.
 *   The selection header block should be the first block. It should contain the
     `spv.BranchConditional` or `spv.Switch` op.
 *   The merge block should be the last block. The merge block should only
-    contain a `spv._merge` op. Any block can branch to the merge block for early
+    contain a `spv.mlir.merge` op. Any block can branch to the merge block for early
     exit.
 
 ```
@@ -581,7 +581,7 @@ func @selection(%cond: i1) -> () {
     spv.Branch ^merge
 
   ^merge:
-    spv._merge
+    spv.mlir.merge
   }
 
   // ...
@@ -598,7 +598,7 @@ continue block, one merge block.
 *   The entry block should be the first block and it should jump to the loop
     header block, which is the second block.
 *   The merge block should be the last block. The merge block should only
-    contain a `spv._merge` op. Any block except the entry block can branch to
+    contain a `spv.mlir.merge` op. Any block except the entry block can branch to
     the merge block for early exit.
 *   The continue block should be the second to last block and it should have a
     branch to the loop header block.
@@ -675,7 +675,7 @@ func @loop(%count : i32) -> () {
     spv.Branch ^header
 
   ^merge:
-    spv._merge
+    spv.mlir.merge
   }
   return
 }
@@ -731,7 +731,7 @@ func @foo() -> () {
     spv.Return
 
   ^merge:
-    spv._merge
+    spv.mlir.merge
   }
   spv.Return
 }
@@ -805,8 +805,14 @@ spirv-vce-attribute ::= `#` `spv.vce` `<`
                             spirv-capability-list `,`
                             spirv-extensions-list `>`
 
+spirv-vendor-id ::= `AMD` | `NVIDIA` | ...
+spirv-device-type ::= `DiscreteGPU` | `IntegratedGPU` | `CPU` | ...
+spirv-device-id ::= integer-literal
+spirv-device-info ::= spirv-vendor-id (`:` spirv-device-type (`:` spirv-device-id)?)?
+
 spirv-target-env-attribute ::= `#` `spv.target_env` `<`
                                   spirv-vce-attribute,
+                                  (spirv-device-info `,`)?
                                   spirv-resource-limits `>`
 ```
 
@@ -827,6 +833,7 @@ For example,
 module attributes {
 spv.target_env = #spv.target_env<
     #spv.vce<v1.3, [Shader, GroupNonUniform], [SPV_KHR_8bit_storage]>,
+    ARM:IntegratedGPU,
     {
       max_compute_workgroup_invocations = 128 : i32,
       max_compute_workgroup_size = dense<[128, 128, 64]> : vector<3xi32>
@@ -961,10 +968,10 @@ Similarly, a few transformations are performed during deserialization:
 *   `OpVariable` instructions will be converted to `spv.globalVariable` ops if
     in module-level; otherwise they will be converted into `spv.Variable` ops.
 *   Every use of a module-level `OpVariable` instruction will materialize a
-    `spv._address_of` op to turn the symbol of the corresponding
+    `spv.mlir.addressof` op to turn the symbol of the corresponding
     `spv.globalVariable` into an SSA value.
 *   Every use of a `OpSpecConstant` instruction will materialize a
-    `spv._reference_of` op to turn the symbol of the corresponding
+    `spv.mlir.referenceof` op to turn the symbol of the corresponding
     `spv.specConstant` into an SSA value.
 *   `OpPhi` instructions are converted to block arguments.
 *   Structured control flow are placed inside `spv.selection` and `spv.loop`.
@@ -998,10 +1005,10 @@ register other legality constraints into the returned `SPIRVConversionTarget`.
 ### `SPIRVTypeConverter`
 
 The `mlir::SPIRVTypeConverter` derives from `mlir::TypeConverter` and provides
-type conversion for standard types to SPIR-V types conforming to the [target
-environment](#target-environment) it is constructed with. If the required
-extension/capability for the resultant type is not available in the given
-target environment, `convertType()` will return a null type.
+type conversion for builtin types to SPIR-V types conforming to the
+[target environment](#target-environment) it is constructed with. If the
+required extension/capability for the resultant type is not available in the
+given target environment, `convertType()` will return a null type.
 
 Standard scalar types are converted to their corresponding SPIR-V scalar types.
 
@@ -1047,7 +1054,7 @@ rules. Specifically,
 
 *   Creates `spv.globalVariable`s for the arguments, and replaces all uses of
     the argument with this variable. The SSA value used for replacement is
-    obtained using the `spv._address_of` operation.
+    obtained using the `spv.mlir.addressof` operation.
 *   Adds the `spv.EntryPoint` and `spv.ExecutionMode` operations into the
     `spv.module` for the entry function.
 
@@ -1061,10 +1068,10 @@ the [Vulkan shader requirements][VulkanShaderInterface].
 #### Creating builtin variables
 
 In SPIR-V dialect, builtins are represented using `spv.globalVariable`s, with
-`spv._address_of` used to get a handle to the builtin as an SSA value.  The
+`spv.mlir.addressof` used to get a handle to the builtin as an SSA value.  The
 method `mlir::spirv::getBuiltinVariableValue` creates a `spv.globalVariable` for
 the builtin in the current `spv.module` if it does not exist already, and
-returns an SSA value generated from an `spv._address_of` operation.
+returns an SSA value generated from an `spv.mlir.addressof` operation.
 
 ### Current conversions to SPIR-V
 
@@ -1149,18 +1156,9 @@ There are also common utilities when targeting SPIR-V from any dialect:
 
 These common utilities are implemented in the `MLIRSPIRVTransforms` library.
 
-## Contribution
-
-All kinds of contributions are highly appreciated! :) We have GitHub issues for
-tracking the [dialect][GitHubDialectTracking] and
-[lowering][GitHubLoweringTracking] development. You can find todo tasks there.
-The [Code organization](#code-organization) section gives an overview of how
-SPIR-V related functionalities are implemented in MLIR. This section gives more
-concrete steps on how to contribute.
-
 ## Rationale
 
-## Lowering `memref`s to `!spv.array<..>` and `!spv.rtarray<..>`.
+### Lowering `memref`s to `!spv.array<..>` and `!spv.rtarray<..>`.
 
 The LLVM dialect lowers `memref` types to a `MemrefDescriptor`:
 
@@ -1183,14 +1181,14 @@ is lowered directly to a `!spv.ptr<!spv.array<nelts x elem_type>>` when the
 below.
 
 1.  Inputs/output buffers to a SPIR-V kernel are specified using
-    [`OpVariable`][SpirvOpVariable] inside
-    [interface storage classes][VulkanShaderInterfaceStorageClass] (e.g.,
-    Uniform, StorageBuffer, etc.), while kernel private variables reside in
-    non-interface storage classes (e.g., Function, Workgroup, etc.). By default,
-    Vulkan-flavored SPIR-V requires logical addressing mode: one cannot
-    load/store pointers from/to variables and cannot perform pointer arithmetic.
-    Expressing a struct like `MemrefDescriptor` in interface storage class
-    requires special addressing mode
+    [`OpVariable`][SpirvOpVariable] inside [interface storage
+    classes][VulkanShaderInterfaceStorageClass] (e.g., Uniform, StorageBuffer,
+    etc.), while kernel private variables reside in non-interface storage
+    classes (e.g., Function, Workgroup, etc.). By default, Vulkan-flavored
+    SPIR-V requires logical addressing mode: one cannot load/store pointers
+    from/to variables and cannot perform pointer arithmetic.  Expressing a
+    struct like `MemrefDescriptor` in interface storage class requires special
+    addressing mode
     ([PhysicalStorageBuffer][VulkanExtensionPhysicalStorageBuffer]) and
     manipulating such a struct in non-interface storage classes requires special
     capabilities ([VariablePointers][VulkanExtensionVariablePointers]).
@@ -1209,10 +1207,10 @@ below.
     further advantages:
 
     *   All the dynamic shape/stride information of the `memref` can be combined
-        into a single descriptor. Descriptors are
-        [limited resources on many Vulkan hardware][VulkanGPUInfoMaxPerStageDescriptorStorageBuffers].
-        So combining them would help make the generated code more portable
-        across devices.
+        into a single descriptor. Descriptors are [limited resources on many
+        Vulkan hardware][VulkanGPUInfoMaxPerStageDescriptorStorageBuffers].  So
+        combining them would help make the generated code more portable across
+        devices.
     *   If the shape/stride information is small enough, they could be accessed
         using [PushConstants][VulkanPushConstants] that are faster to access and
         avoid buffer allocation overheads. These would be unnecessary if all
@@ -1222,6 +1220,15 @@ below.
     *   The shape/stride information (typically) needs to be update less
         frequently than the data stored in the buffers. They could be part of
         different descriptor sets.
+
+## Contribution
+
+All kinds of contributions are highly appreciated! :) We have GitHub issues for
+tracking the [dialect][GitHubDialectTracking] and
+[lowering][GitHubLoweringTracking] development. You can find todo tasks there.
+The [Code organization](#code-organization) section gives an overview of how
+SPIR-V related functionalities are implemented in MLIR. This section gives more
+concrete steps on how to contribute.
 
 ### Automated development flow
 

@@ -17,11 +17,24 @@
 
 using namespace llvm;
 
-static_assert(is_trivially_copyable<Optional<int>>::value,
-          "trivially copyable");
-
-static_assert(is_trivially_copyable<Optional<std::array<int, 3>>>::value,
+static_assert(std::is_trivially_copyable<Optional<int>>::value,
               "trivially copyable");
+
+static_assert(std::is_trivially_copyable<Optional<std::array<int, 3>>>::value,
+              "trivially copyable");
+
+void OptionalWorksInConstexpr() {
+  constexpr auto x1 = Optional<int>();
+  constexpr Optional<int> x2{};
+  static_assert(!x1.hasValue() && !x2.hasValue(),
+                "Default construction and hasValue() are contexpr");
+  constexpr auto y1 = Optional<int>(3);
+  constexpr Optional<int> y2{3};
+  static_assert(y1.getValue() == y2.getValue() && y1.getValue() == 3,
+                "Construction with value and getValue() are constexpr");
+  static_assert(Optional<int>{3} >= 2 && Optional<int>{1} < Optional<int>{2},
+                "Comparisons work in constexpr");
+}
 
 namespace {
 
@@ -53,8 +66,8 @@ unsigned NonDefaultConstructible::Destructions = 0;
 unsigned NonDefaultConstructible::CopyAssignments = 0;
 
 static_assert(
-      !is_trivially_copyable<Optional<NonDefaultConstructible>>::value,
-      "not trivially copyable");
+    !std::is_trivially_copyable<Optional<NonDefaultConstructible>>::value,
+    "not trivially copyable");
 
 // Test fixture
 class OptionalTest : public testing::Test {
@@ -214,9 +227,8 @@ struct MultiArgConstructor {
 };
 unsigned MultiArgConstructor::Destructions = 0;
 
-static_assert(
-  !is_trivially_copyable<Optional<MultiArgConstructor>>::value,
-  "not trivially copyable");
+static_assert(!std::is_trivially_copyable<Optional<MultiArgConstructor>>::value,
+              "not trivially copyable");
 
 TEST_F(OptionalTest, Emplace) {
   MultiArgConstructor::ResetCounts();
@@ -265,7 +277,7 @@ unsigned MoveOnly::MoveConstructions = 0;
 unsigned MoveOnly::Destructions = 0;
 unsigned MoveOnly::MoveAssignments = 0;
 
-static_assert(!is_trivially_copyable<Optional<MoveOnly>>::value,
+static_assert(!std::is_trivially_copyable<Optional<MoveOnly>>::value,
               "not trivially copyable");
 
 TEST_F(OptionalTest, MoveOnlyNull) {
@@ -369,7 +381,7 @@ private:
 unsigned Immovable::Constructions = 0;
 unsigned Immovable::Destructions = 0;
 
-static_assert(!is_trivially_copyable<Optional<Immovable>>::value,
+static_assert(!std::is_trivially_copyable<Optional<Immovable>>::value,
               "not trivially copyable");
 
 TEST_F(OptionalTest, ImmovableEmplace) {

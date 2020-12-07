@@ -1628,7 +1628,7 @@ void ObjectFileMachO::ProcessSegmentCommand(const load_command &load_cmd_,
   } else if (unified_section_sp) {
     if (is_dsym && unified_section_sp->GetFileAddress() != load_cmd.vmaddr) {
       // Check to see if the module was read from memory?
-      if (module_sp->GetObjectFile()->GetBaseAddress().IsValid()) {
+      if (module_sp->GetObjectFile()->IsInMemory()) {
         // We have a module that is in memory and needs to have its file
         // address adjusted. We need to do this because when we load a file
         // from memory, its addresses will be slid already, yet the addresses
@@ -1887,15 +1887,15 @@ public:
           m_section_infos[n_sect].vm_range.SetByteSize(
               section_sp->GetByteSize());
         } else {
-          const char *filename = "<unknown>";
+          std::string filename = "<unknown>";
           SectionSP first_section_sp(m_section_list->GetSectionAtIndex(0));
           if (first_section_sp)
-            filename = first_section_sp->GetObjectFile()->GetFileSpec().GetPath().c_str();
+            filename = first_section_sp->GetObjectFile()->GetFileSpec().GetPath();
 
           Host::SystemLog(Host::eSystemLogError,
                           "error: unable to find section %d for a symbol in %s, corrupt file?\n",
                           n_sect, 
-                          filename);
+                          filename.c_str());
         }
       }
       if (m_section_infos[n_sect].vm_range.Contains(file_addr)) {
@@ -3032,12 +3032,10 @@ size_t ObjectFileMachO::ParseSymtab() {
                             // contains just the filename, so here we combine
                             // it with the first one if we are minimizing the
                             // symbol table
-                            const char *so_path =
-                                sym[sym_idx - 1]
-                                    .GetMangled()
-                                    .GetDemangledName(
-                                        lldb::eLanguageTypeUnknown)
-                                    .AsCString();
+                            const char *so_path = sym[sym_idx - 1]
+                                                      .GetMangled()
+                                                      .GetDemangledName()
+                                                      .AsCString();
                             if (so_path && so_path[0]) {
                               std::string full_so_path(so_path);
                               const size_t double_slash_pos =
@@ -3472,8 +3470,7 @@ size_t ObjectFileMachO::ParseSymtab() {
                             const char *gsym_name =
                                 sym[sym_idx]
                                     .GetMangled()
-                                    .GetName(lldb::eLanguageTypeUnknown,
-                                             Mangled::ePreferMangled)
+                                    .GetName(Mangled::ePreferMangled)
                                     .GetCString();
                             if (gsym_name)
                               N_GSYM_name_to_sym_idx[gsym_name] = sym_idx;
@@ -3555,10 +3552,8 @@ size_t ObjectFileMachO::ParseSymtab() {
                             for (auto pos = range.first; pos != range.second;
                                  ++pos) {
                               if (sym[sym_idx].GetMangled().GetName(
-                                      lldb::eLanguageTypeUnknown,
                                       Mangled::ePreferMangled) ==
                                   sym[pos->second].GetMangled().GetName(
-                                      lldb::eLanguageTypeUnknown,
                                       Mangled::ePreferMangled)) {
                                 m_nlist_idx_to_sym_idx[nlist_idx] = pos->second;
                                 // We just need the flags from the linker
@@ -3600,10 +3595,8 @@ size_t ObjectFileMachO::ParseSymtab() {
                             for (auto pos = range.first; pos != range.second;
                                  ++pos) {
                               if (sym[sym_idx].GetMangled().GetName(
-                                      lldb::eLanguageTypeUnknown,
                                       Mangled::ePreferMangled) ==
                                   sym[pos->second].GetMangled().GetName(
-                                      lldb::eLanguageTypeUnknown,
                                       Mangled::ePreferMangled)) {
                                 m_nlist_idx_to_sym_idx[nlist_idx] = pos->second;
                                 // We just need the flags from the linker
@@ -3625,8 +3618,7 @@ size_t ObjectFileMachO::ParseSymtab() {
                             const char *gsym_name =
                                 sym[sym_idx]
                                     .GetMangled()
-                                    .GetName(lldb::eLanguageTypeUnknown,
-                                             Mangled::ePreferMangled)
+                                    .GetName(Mangled::ePreferMangled)
                                     .GetCString();
                             if (gsym_name) {
                               // Combine N_GSYM stab entries with the non
@@ -5007,8 +4999,8 @@ void ObjectFileMachO::GetAllArchSpecs(const llvm::MachO::mach_header &header,
 
     struct version_min_command version_min;
     switch (load_cmd.cmd) {
-    case llvm::MachO::LC_VERSION_MIN_IPHONEOS:
     case llvm::MachO::LC_VERSION_MIN_MACOSX:
+    case llvm::MachO::LC_VERSION_MIN_IPHONEOS:
     case llvm::MachO::LC_VERSION_MIN_TVOS:
     case llvm::MachO::LC_VERSION_MIN_WATCHOS: {
       if (load_cmd.cmdsize != sizeof(version_min))
@@ -5024,7 +5016,19 @@ void ObjectFileMachO::GetAllArchSpecs(const llvm::MachO::mach_header &header,
 
       auto triple = base_triple;
       triple.setOSName(os.str());
-      os_name.clear();
+
+      // Disambiguate legacy simulator platforms.
+      if (load_cmd.cmd != llvm::MachO::LC_VERSION_MIN_MACOSX &&
+          (base_triple.getArch() == llvm::Triple::x86_64 ||
+           base_triple.getArch() == llvm::Triple::x86)) {
+        // The combination of legacy LC_VERSION_MIN load command and
+        // x86 architecture always indicates a simulator environment.
+        // The combination of LC_VERSION_MIN and arm architecture only
+        // appears for native binaries. Back-deploying simulator
+        // binaries on Apple Silicon Macs use the modern unambigous
+        // LC_BUILD_VERSION load commands; no special handling required.
+        triple.setEnvironment(llvm::Triple::Simulator);
+      }
       add_triple(triple);
       break;
     }
@@ -5507,7 +5511,8 @@ std::string ObjectFileMachO::GetIdentifierString() {
   return result;
 }
 
-bool ObjectFileMachO::GetCorefileMainBinaryInfo(addr_t &address, UUID &uuid) {
+bool ObjectFileMachO::GetCorefileMainBinaryInfo(addr_t &address, UUID &uuid,
+                                                ObjectFile::BinaryType &type) {
   address = LLDB_INVALID_ADDRESS;
   uuid.Clear();
   ModuleSP module_sp(GetModule());
@@ -5530,24 +5535,43 @@ bool ObjectFileMachO::GetCorefileMainBinaryInfo(addr_t &address, UUID &uuid) {
         // "main bin spec" (main binary specification) data payload is
         // formatted:
         //    uint32_t version       [currently 1]
-        //    uint32_t type          [0 == unspecified, 1 == kernel, 2 == user
-        //    process] uint64_t address       [ UINT64_MAX if address not
-        //    specified ] uuid_t   uuid          [ all zero's if uuid not
-        //    specified ] uint32_t log2_pagesize [ process page size in log base
-        //    2, e.g. 4k pages are 12.  0 for unspecified ]
+        //    uint32_t type          [0 == unspecified, 1 == kernel,
+        //                            2 == user process, 3 == firmware ]
+        //    uint64_t address       [ UINT64_MAX if address not specified ]
+        //    uuid_t   uuid          [ all zero's if uuid not specified ]
+        //    uint32_t log2_pagesize [ process page size in log base
+        //                             2, e.g. 4k pages are 12.
+        //                             0 for unspecified ]
+        //    uint32_t unused        [ for alignment ]
 
         if (strcmp("main bin spec", data_owner) == 0 && size >= 32) {
           offset = fileoff;
           uint32_t version;
           if (m_data.GetU32(&offset, &version, 1) != nullptr && version == 1) {
-            uint32_t type = 0;
+            uint32_t binspec_type = 0;
             uuid_t raw_uuid;
             memset(raw_uuid, 0, sizeof(uuid_t));
 
-            if (m_data.GetU32(&offset, &type, 1) &&
+            if (m_data.GetU32(&offset, &binspec_type, 1) &&
                 m_data.GetU64(&offset, &address, 1) &&
                 m_data.CopyData(offset, sizeof(uuid_t), raw_uuid) != 0) {
               uuid = UUID::fromOptionalData(raw_uuid, sizeof(uuid_t));
+              // convert the "main bin spec" type into our
+              // ObjectFile::BinaryType enum
+              switch (binspec_type) {
+              case 0:
+                type = eBinaryTypeUnknown;
+                break;
+              case 1:
+                type = eBinaryTypeKernel;
+                break;
+              case 2:
+                type = eBinaryTypeUser;
+                break;
+              case 3:
+                type = eBinaryTypeStandalone;
+                break;
+              }
               return true;
             }
           }

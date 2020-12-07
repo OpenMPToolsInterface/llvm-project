@@ -17,8 +17,9 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/LegalizeForExport.h"
 #include "mlir/IR/Block.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Target/LLVMIR/TypeTranslation.h"
 
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/BasicBlock.h"
@@ -49,14 +50,15 @@ class LLVMFuncOp;
 class ModuleTranslation {
 public:
   template <typename T = ModuleTranslation>
-  static std::unique_ptr<llvm::Module> translateModule(Operation *m) {
+  static std::unique_ptr<llvm::Module>
+  translateModule(Operation *m, llvm::LLVMContext &llvmContext,
+                  StringRef name = "LLVMDialectModule") {
     if (!satisfiesLLVMModule(m))
       return nullptr;
     if (failed(checkSupportedModuleOps(m)))
       return nullptr;
-    auto llvmModule = prepareLLVMModule(m);
-    if (!llvmModule)
-      return nullptr;
+    std::unique_ptr<llvm::Module> llvmModule =
+        prepareLLVMModule(m, llvmContext, name);
 
     LLVM::ensureDistinctSuccessors(m);
 
@@ -89,7 +91,21 @@ protected:
                                             llvm::IRBuilder<> &builder);
   virtual LogicalResult convertOmpParallel(Operation &op,
                                            llvm::IRBuilder<> &builder);
-  static std::unique_ptr<llvm::Module> prepareLLVMModule(Operation *m);
+  virtual LogicalResult convertOmpMaster(Operation &op,
+                                         llvm::IRBuilder<> &builder);
+  void convertOmpOpRegions(Region &region,
+                           DenseMap<Value, llvm::Value *> &valueMapping,
+                           DenseMap<Block *, llvm::BasicBlock *> &blockMapping,
+                           llvm::Instruction *codeGenIPBBTI,
+                           llvm::BasicBlock &continuationIP,
+                           llvm::IRBuilder<> &builder,
+                           LogicalResult &bodyGenStatus);
+  /// Converts the type from MLIR LLVM dialect to LLVM.
+  llvm::Type *convertType(LLVMType type);
+
+  static std::unique_ptr<llvm::Module>
+  prepareLLVMModule(Operation *m, llvm::LLVMContext &llvmContext,
+                    StringRef name);
 
   /// A helper to look up remapped operands in the value remapping table.
   SmallVector<llvm::Value *, 8> lookupValues(ValueRange values);
@@ -115,13 +131,20 @@ private:
 
   /// Builder for LLVM IR generation of OpenMP constructs.
   std::unique_ptr<llvm::OpenMPIRBuilder> ompBuilder;
-  /// Precomputed pointer to OpenMP dialect.
+  /// Precomputed pointer to OpenMP dialect. Note this can be nullptr if the
+  /// OpenMP dialect hasn't been loaded (it is always loaded if there are OpenMP
+  /// operations in the module though).
   const Dialect *ompDialect;
-  /// Pointer to the llvmDialect;
-  LLVMDialect *llvmDialect;
+  /// Stack which stores the target block to which a branch a must be added when
+  /// a terminator is seen. A stack is required to handle nested OpenMP parallel
+  /// regions.
+  SmallVector<llvm::BasicBlock *, 4> ompContinuationIPStack;
 
   /// Mappings between llvm.mlir.global definitions and corresponding globals.
   DenseMap<Operation *, llvm::GlobalValue *> globalsMapping;
+
+  /// A stateful object used to translate types.
+  TypeToLLVMIRTranslator typeTranslator;
 
 protected:
   /// Mappings between original and translated values, used for lookups.

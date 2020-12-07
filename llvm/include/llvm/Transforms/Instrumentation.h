@@ -66,6 +66,9 @@ struct GCOVOptions {
   // Add the 'noredzone' attribute to added runtime library calls.
   bool NoRedZone;
 
+  // Use atomic profile counter increments.
+  bool Atomic = false;
+
   // Regexes separated by a semi-colon to filter the files to instrument.
   std::string Filter;
 
@@ -143,7 +146,7 @@ ModulePass *createInstrProfilingLegacyPass(
 ModulePass *createInstrOrderFilePass();
 
 // Insert DataFlowSanitizer (dynamic data flow analysis) instrumentation
-ModulePass *createDataFlowSanitizerPass(
+ModulePass *createDataFlowSanitizerLegacyPassPass(
     const std::vector<std::string> &ABIListFiles = std::vector<std::string>());
 
 // Options for sanitizer coverage instrumentation.

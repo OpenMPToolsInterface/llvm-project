@@ -400,7 +400,9 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
     return true;
   if (Current.is(TT_SelectorName) && !Previous.is(tok::at) &&
       State.Stack.back().ObjCSelectorNameFound &&
-      State.Stack.back().BreakBeforeParameter)
+      State.Stack.back().BreakBeforeParameter &&
+      (Style.ObjCBreakBeforeNestedBlockParam ||
+       !Current.startsSequence(TT_SelectorName, tok::colon, tok::caret)))
     return true;
 
   unsigned NewLineColumn = getNewLineColumn(State);
@@ -782,6 +784,22 @@ unsigned ContinuationIndenter::addTokenOnNewLine(LineState &State,
     Penalty += Style.PenaltyBreakFirstLessLess;
 
   State.Column = getNewLineColumn(State);
+
+  // Add Penalty proportional to amount of whitespace away from FirstColumn
+  // This tends to penalize several lines that are far-right indented,
+  // and prefers a line-break prior to such a block, e.g:
+  //
+  // Constructor() :
+  //   member(value), looooooooooooooooong_member(
+  //                      looooooooooong_call(param_1, param_2, param_3))
+  // would then become
+  // Constructor() :
+  //   member(value),
+  //   looooooooooooooooong_member(
+  //       looooooooooong_call(param_1, param_2, param_3))
+  if (State.Column > State.FirstIndent)
+    Penalty +=
+        Style.PenaltyIndentedWhitespace * (State.Column - State.FirstIndent);
 
   // Indent nested blocks relative to this column, unless in a very specific
   // JavaScript special case where:
@@ -1348,16 +1366,20 @@ void ContinuationIndenter::moveStatePastFakeLParens(LineState &State,
                    State.Stack.back().LastSpace);
     }
 
-    // If BreakBeforeBinaryOperators is set, un-indent a bit to account for
-    // the operator and keep the operands aligned
-    if (Style.AlignOperands == FormatStyle::OAS_AlignAfterOperator &&
-        Previous &&
+    if (Previous &&
         (Previous->getPrecedence() == prec::Assignment ||
          Previous->is(tok::kw_return) ||
          (*I == prec::Conditional && Previous->is(tok::question) &&
           Previous->is(TT_ConditionalExpr))) &&
-        !Newline)
-      NewParenState.UnindentOperator = true;
+        !Newline) {
+      // If BreakBeforeBinaryOperators is set, un-indent a bit to account for
+      // the operator and keep the operands aligned
+      if (Style.AlignOperands == FormatStyle::OAS_AlignAfterOperator)
+        NewParenState.UnindentOperator = true;
+      // Mark indentation as alignment if the expression is aligned.
+      if (Style.AlignOperands != FormatStyle::OAS_DontAlign)
+        NewParenState.IsAligned = true;
+    }
 
     // Do not indent relative to the fake parentheses inserted for "." or "->".
     // This is a special case to make the following to statements consistent:
