@@ -1,5 +1,5 @@
 /*
- * ompd_intel.h
+ * omp-debug.h
  *
  *  Created on: Jan 14, 2015
  *      Author: Ignacio Laguna

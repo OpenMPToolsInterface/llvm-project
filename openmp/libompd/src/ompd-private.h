@@ -46,14 +46,6 @@
                                                                                                 \
     /* implementation-specific states (512..) */
 
-#if 0
-typedef enum ompd_state_t {
-#define ompd_state_macro(state, code) state = code,
-  FOREACH_OMPD_STATE(ompd_state_macro)
-#undef ompd_state_macro
-} ompd_state_t;
-#endif
-
 #define OMPD_LAST_OMP_STATE ompt_state_overhead
 
 

@@ -28,7 +28,7 @@ uint64_t ompd_state;
 
 /* --- OMPD functions ------------------------------------------------------- */
 
-/* --- 1 Initialization ----------------------------------------------------- */
+/* --- Initialization ------------------------------------------------------- */
 
 ompd_rc_t ompd_initialize(ompd_word_t version, const ompd_callbacks_t *table) {
   ompd_rc_t ret = table ? ompd_rc_ok : ompd_rc_bad_input;
@@ -53,7 +53,6 @@ ompd_process_initialize(ompd_address_space_context_t
   if (!handle)
     return ompd_rc_bad_input;
 
-  int rtl_version;
   ompd_rc_t ret = initTypeSizes(context);
   if (ret != ompd_rc_ok)
     return ret;
@@ -87,7 +86,9 @@ ompd_get_omp_version(ompd_address_space_handle_t
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ret = TValue(context, "__kmp_openmp_version")
             .castBase(ompd_type_int)
@@ -170,7 +171,7 @@ ompd_rc_t ompd_device_initialize(
   return ompd_rc_unavailable;
 }
 
-/* --- 4.5 Thread Handles --------------------------------------------------- */
+/* --- Thread Handles ------------------------------------------------------- */
 
 /* thread_handle is of type (kmp_base_info_t) */
 
@@ -189,7 +190,9 @@ ompd_rc_t ompd_get_thread_in_parallel(
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_address_t taddr={OMPD_SEGMENT_UNSPECIFIED,0};
 
@@ -298,7 +301,7 @@ ompd_rc_t ompd_thread_handle_compare(ompd_thread_handle_t *thread_handle_1,
   return ompd_rc_ok;
 }
 
-/* --- 4.6 Parallel Region Handles------------------------------------------- */
+/* --- Parallel Region Handles----------------------------------------------- */
 
 /* parallel_handle is of type (kmp_base_team_t)*/
 
@@ -315,7 +318,9 @@ ompd_rc_t ompd_get_curr_parallel_handle(
   if (!context || !thread_context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret;
 
@@ -422,7 +427,9 @@ ompd_rc_t ompd_get_enclosing_parallel_handle(
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_address_t taddr = parallel_handle->th, lwt={OMPD_SEGMENT_UNSPECIFIED,0};
   ompd_rc_t ret;
@@ -558,7 +565,10 @@ ompd_rc_t ompd_get_task_parallel_handle(
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
+
   ompd_address_t taddr={OMPD_SEGMENT_UNSPECIFIED,0};
 
   ompd_rc_t ret;
@@ -663,7 +673,7 @@ ompd_parallel_handle_compare(ompd_parallel_handle_t *parallel_handle_1,
   return ompd_rc_ok;
 }
 
-/* --- 4.7 Task Handles ----------------------------------------------------- */
+/* ------- Task Handles ----------------------------------------------------- */
 
 /* task_handle is of type (kmp_taskdata_t) */
 
@@ -679,7 +689,10 @@ ompd_rc_t ompd_get_curr_task_handle(
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
+
   ompd_address_t taddr={OMPD_SEGMENT_UNSPECIFIED,0}, lwt={OMPD_SEGMENT_UNSPECIFIED,0};
   ompd_rc_t ret = ompd_rc_ok;
 
@@ -739,8 +752,10 @@ ompd_rc_t ompd_get_generating_task_handle(
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
-  assert(callbacks && "Callback table not initialized!");
   ompd_address_t taddr = task_handle->th, lwt={OMPD_SEGMENT_UNSPECIFIED,0};
 
   ompd_rc_t ret = ompd_rc_stale_handle;
@@ -800,7 +815,10 @@ ompd_rc_t ompd_get_scheduling_task_handle(
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
+
   ompd_address_t taddr={OMPD_SEGMENT_UNSPECIFIED,0};
   ompd_rc_t ret;
 
@@ -850,7 +868,6 @@ ompd_rc_t ompd_get_task_in_parallel(
     int thread_num,                  /* OUT: number of the task handle */
     ompd_task_handle_t **task_handle /* OUT: OpenMP task handle */
     ) {
-  int i;
   if (!parallel_handle)
     return ompd_rc_stale_handle;
   if (!parallel_handle->ah)
@@ -859,7 +876,9 @@ ompd_rc_t ompd_get_task_in_parallel(
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret;
   ompd_address_t taddr={OMPD_SEGMENT_UNSPECIFIED,0};
@@ -925,9 +944,6 @@ ompd_rc_t ompd_task_handle_compare(ompd_task_handle_t *task_handle_1,
   return ompd_rc_ok;
 }
 
-/* --- 7 Thread Inquiry ----------------------------------------------------- */
-
-/* --- 7.1 Operating System Thread Inquiry ---------------------------------- */
 
 ompd_rc_t
 ompd_get_thread_handle(ompd_address_space_handle_t
@@ -943,7 +959,9 @@ ompd_get_thread_handle(ompd_address_space_handle_t
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
   ompd_thread_context_t *tcontext;
   ret = callbacks->get_thread_context_for_thread_id(
       context, kind, sizeof_thread_id, thread_id, &tcontext);
@@ -1141,7 +1159,9 @@ ompd_rc_t ompd_get_thread_id(
     if (sizeof_thread_id != size)
       return ompd_rc_bad_input;
 
-    assert(callbacks && "Callback table not initialized!");
+    if (!callbacks) {
+      return ompd_rc_callback_error;
+    }
 
     ret = TValue(context, thread_handle->th) /*__kmp_threads[t]->th*/
               .cast("kmp_base_info_t")
@@ -1156,7 +1176,7 @@ ompd_rc_t ompd_get_thread_id(
   return ret;
 }
 
-/* --- 7.2 OMPT Thread State Inquiry Analogue ------------------------------- */
+/* --- OMPT Thread State Inquiry Analogue ----------------------------------- */
 
 ompd_rc_t ompd_get_state(
     ompd_thread_handle_t *thread_handle, /* IN: OpenMP thread handle*/
@@ -1173,8 +1193,10 @@ ompd_rc_t ompd_get_state(
   if (!ompd_state)
     return ompd_rc_needs_state_tracking;
 
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
   ompd_rc_t ret;
-  assert(callbacks && "Callback table not initialized!");
 
   if (thread_handle->ah->kind == OMPD_DEVICE_KIND_CUDA) {
     if (wait_id)
@@ -1208,11 +1230,11 @@ ompd_rc_t ompd_get_state(
   return ret;
 }
 
-/* --- 8 Task Inquiry ------------------------------------------------------- */
+/* ---  Task Inquiry -------------------------------------------------------- */
 
-/* --- 8.1 Task Settings ---------------------------------------------------- */
+/* ---  Task Settings ------------------------------------------------------- */
 
-/* --- 8.2 OMPT Task Inquiry Analogues -------------------------------------- */
+/* ---  OMPT Task Inquiry Analogues ----------------------------------------- */
 
 ompd_rc_t ompd_get_task_frame(
     ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
@@ -1229,7 +1251,9 @@ ompd_rc_t ompd_get_task_frame(
   if (!ompd_state)
     return ompd_rc_needs_state_tracking;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret;
 
@@ -1279,8 +1303,10 @@ ompd_rc_t ompd_get_task_function(
     return ompd_rc_stale_handle;
   if (!ompd_state)
     return ompd_rc_needs_state_tracking;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
-  assert(callbacks && "Callback table not initialized!");
   ompd_rc_t ret;
 
   if (task_handle->ah->kind == OMPD_DEVICE_KIND_CUDA) {
@@ -1340,7 +1366,7 @@ ompd_rc_t ompd_get_task_function(
   return ret;
 }
 
-/* --- --- OMPD Version and Compatibility Information ----------------------- */
+/* ------- OMPD Version and Compatibility Information ----------------------- */
 
 ompd_rc_t ompd_get_api_version(ompd_word_t *version) {
   *version = OMPD_VERSION;
@@ -1358,7 +1384,7 @@ ompd_get_version_string(const char **string /* OUT: OMPD version string */
   return ompd_rc_ok;
 }
 
-/* --- 4.8 Display Control Variables ---------------------------------------- */
+/* ------ Display Control Variables ----------------------------------------- */
 
 ompd_rc_t ompd_get_display_control_vars(ompd_address_space_handle_t *handle,
                                         const char *const **control_vars) {
