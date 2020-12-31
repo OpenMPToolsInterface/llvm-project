@@ -20,10 +20,19 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   if(APPLE)
     include(CompilerRTDarwinUtils)
   endif()
-  if(CMAKE_HOST_APPLE AND APPLE)
+  if(APPLE)
     include(UseLibtool)
   endif()
   include(AddCompilerRT)
+
+  if(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+    set(CMAKE_C_ARCHIVE_CREATE "<CMAKE_AR> -X32_64 qc <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_AR> -X32_64 qc <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_C_ARCHIVE_APPEND "<CMAKE_AR> -X32_64 q <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_CXX_ARCHIVE_APPEND "<CMAKE_AR> -X32_64 q <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_C_ARCHIVE_FINISH "<CMAKE_RANLIB> -X32_64 <TARGET>")
+    set(CMAKE_CXX_ARCHIVE_FINISH "<CMAKE_RANLIB> -X32_64 <TARGET>")
+  endif()
 endif()
 
 if (COMPILER_RT_STANDALONE_BUILD)
@@ -71,6 +80,7 @@ set(GENERIC_SOURCES
   divdi3.c
   divmoddi4.c
   divmodsi4.c
+  divmodti4.c
   divsc3.c
   divsf3.c
   divsi3.c
@@ -416,40 +426,42 @@ set(arm_Thumb1_SjLj_EH_SOURCES
   arm/restore_vfp_d8_d15_regs.S
   arm/save_vfp_d8_d15_regs.S
 )
-set(arm_Thumb1_VFPv2_SOURCES
+set(arm_Thumb1_VFPv2_DP_SOURCES
   arm/adddf3vfp.S
-  arm/addsf3vfp.S
   arm/divdf3vfp.S
-  arm/divsf3vfp.S
   arm/eqdf2vfp.S
-  arm/eqsf2vfp.S
   arm/extendsfdf2vfp.S
   arm/fixdfsivfp.S
-  arm/fixsfsivfp.S
   arm/fixunsdfsivfp.S
-  arm/fixunssfsivfp.S
   arm/floatsidfvfp.S
-  arm/floatsisfvfp.S
   arm/floatunssidfvfp.S
-  arm/floatunssisfvfp.S
   arm/gedf2vfp.S
-  arm/gesf2vfp.S
   arm/gtdf2vfp.S
-  arm/gtsf2vfp.S
   arm/ledf2vfp.S
-  arm/lesf2vfp.S
   arm/ltdf2vfp.S
-  arm/ltsf2vfp.S
   arm/muldf3vfp.S
-  arm/mulsf3vfp.S
   arm/nedf2vfp.S
   arm/negdf2vfp.S
-  arm/negsf2vfp.S
-  arm/nesf2vfp.S
   arm/subdf3vfp.S
-  arm/subsf3vfp.S
   arm/truncdfsf2vfp.S
   arm/unorddf2vfp.S
+)
+set(arm_Thumb1_VFPv2_SP_SOURCES
+  arm/addsf3vfp.S
+  arm/divsf3vfp.S
+  arm/eqsf2vfp.S
+  arm/fixsfsivfp.S
+  arm/fixunssfsivfp.S
+  arm/floatsisfvfp.S
+  arm/floatunssisfvfp.S
+  arm/gesf2vfp.S
+  arm/gtsf2vfp.S
+  arm/lesf2vfp.S
+  arm/ltsf2vfp.S
+  arm/mulsf3vfp.S
+  arm/negsf2vfp.S
+  arm/nesf2vfp.S
+  arm/subsf3vfp.S
   arm/unordsf2vfp.S
 )
 set(arm_Thumb1_icache_SOURCES
@@ -458,7 +470,8 @@ set(arm_Thumb1_icache_SOURCES
 set(arm_Thumb1_SOURCES
   ${arm_Thumb1_JT_SOURCES}
   ${arm_Thumb1_SjLj_EH_SOURCES}
-  ${arm_Thumb1_VFPv2_SOURCES}
+  ${arm_Thumb1_VFPv2_DP_SOURCES}
+  ${arm_Thumb1_VFPv2_SP_SOURCES}
   ${arm_Thumb1_icache_SOURCES}
 )
 
@@ -489,8 +502,40 @@ endif()
 set(aarch64_SOURCES
   ${GENERIC_TF_SOURCES}
   ${GENERIC_SOURCES}
+  cpu_model.c
   aarch64/fp_mode.c
 )
+
+# Generate outline atomics helpers from lse.S base
+set(CUSTOM_FLAGS ${CMAKE_C_FLAGS})
+if(NOT ANDROID)
+  append_list_if(COMPILER_RT_HAS_VISIBILITY_HIDDEN_FLAG -DVISIBILITY_HIDDEN CUSTOM_FLAGS)
+endif()
+append_list_if(COMPILER_RT_HAS_ASM_LSE -DHAS_ASM_LSE CUSTOM_FLAGS)
+string(REPLACE " " "\t" CUSTOM_FLAGS "${CUSTOM_FLAGS}")
+set(OA_HELPERS_DIR "${CMAKE_CURRENT_BINARY_DIR}/outline_atomic_helpers.dir")
+file(MAKE_DIRECTORY ${OA_HELPERS_DIR})
+
+foreach(pat cas swp ldadd ldclr ldeor ldset)
+  foreach(size 1 2 4 8 16)
+    foreach(model 1 2 3 4)
+      if(pat STREQUAL "cas" OR NOT size STREQUAL "16")
+        set(helper_asm ${OA_HELPERS_DIR}/outline_atomic_${pat}${size}_${model}.S)
+        add_custom_command(
+          OUTPUT ${helper_asm}
+          COMMAND ${CMAKE_C_COMPILER} -E ${CUSTOM_FLAGS} -DL_${pat} -DSIZE=${size} -DMODEL=${model}
+                  ${CMAKE_CURRENT_SOURCE_DIR}/aarch64/lse.S -o ${helper_asm}
+          DEPENDS aarch64/lse.S assembly.h
+        )
+        set_source_files_properties(${helper_asm} PROPERTIES GENERATED TRUE)
+        set(aarch64_SOURCES
+          ${aarch64_SOURCES}
+          ${helper_asm}
+        )
+      endif()
+    endforeach(model)
+  endforeach(size)
+endforeach(pat)
 
 if (MINGW)
   set(aarch64_SOURCES
@@ -551,13 +596,12 @@ set(mips64_SOURCES ${GENERIC_TF_SOURCES}
 set(mips64el_SOURCES ${GENERIC_TF_SOURCES}
                      ${mips_SOURCES})
 
+set(powerpc_SOURCES ${GENERIC_SOURCES})
+
 set(powerpc64_SOURCES
   ppc/divtc3.c
-  ppc/fixtfti.c
   ppc/fixtfdi.c
-  ppc/fixunstfti.c
   ppc/fixunstfdi.c
-  ppc/floattitf.c
   ppc/floatditf.c
   ppc/floatunditf.c
   ppc/gcc_qadd.c
@@ -567,6 +611,15 @@ set(powerpc64_SOURCES
   ppc/multc3.c
   ${GENERIC_SOURCES}
 )
+# These routines require __int128, which isn't supported on AIX.
+if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+  set(powerpc64_SOURCES
+    ppc/floattitf.c
+    ppc/fixtfti.c
+    ppc/fixunstfti.c
+    ${powerpc64_SOURCES}
+  )
+endif()
 set(powerpc64le_SOURCES ${powerpc64_SOURCES})
 
 set(riscv_SOURCES ${GENERIC_SOURCES} ${GENERIC_TF_SOURCES})
@@ -574,7 +627,10 @@ set(riscv32_SOURCES
   riscv/mulsi3.S
   ${riscv_SOURCES}
 )
-set(riscv64_SOURCES ${riscv_SOURCES})
+set(riscv64_SOURCES
+  riscv/muldi3.S
+  ${riscv_SOURCES}
+)
 
 set(sparc_SOURCES ${GENERIC_SOURCES} ${GENERIC_TF_SOURCES})
 set(sparcv9_SOURCES ${GENERIC_SOURCES} ${GENERIC_TF_SOURCES})
@@ -604,6 +660,8 @@ if (APPLE)
 else ()
   set(BUILTIN_CFLAGS "")
 
+  append_list_if(COMPILER_RT_HAS_FLOAT16 -DCOMPILER_RT_HAS_FLOAT16 BUILTIN_CFLAGS)
+
   append_list_if(COMPILER_RT_HAS_STD_C11_FLAG -std=c11 BUILTIN_CFLAGS)
 
   # These flags would normally be added to CMAKE_C_FLAGS by the llvm
@@ -632,9 +690,18 @@ else ()
       # For ARM archs, exclude any VFP builtins if VFP is not supported
       if (${arch} MATCHES "^(arm|armhf|armv7|armv7s|armv7k|armv7m|armv7em)$")
         string(REPLACE ";" " " _TARGET_${arch}_CFLAGS "${TARGET_${arch}_CFLAGS}")
-        check_compile_definition(__VFP_FP__ "${CMAKE_C_FLAGS} ${_TARGET_${arch}_CFLAGS}" COMPILER_RT_HAS_${arch}_VFP)
+        check_compile_definition(__ARM_FP "${CMAKE_C_FLAGS} ${_TARGET_${arch}_CFLAGS}" COMPILER_RT_HAS_${arch}_VFP)
         if(NOT COMPILER_RT_HAS_${arch}_VFP)
-          list(REMOVE_ITEM ${arch}_SOURCES ${arm_Thumb1_VFPv2_SOURCES} ${arm_Thumb1_SjLj_EH_SOURCES})
+          list(REMOVE_ITEM ${arch}_SOURCES ${arm_Thumb1_VFPv2_DP_SOURCES} ${arm_Thumb1_VFPv2_SP_SOURCES} ${arm_Thumb1_SjLj_EH_SOURCES})
+        else()
+          # Exclude any double-precision builtins if VFP is single-precision-only
+          check_c_source_compiles("#if !(__ARM_FP & 0x8)
+                                   #error No double-precision support!
+                                   #endif
+                                   int main() { return 0; }" COMPILER_RT_HAS_${arch}_VFP_DP)
+          if(NOT COMPILER_RT_HAS_${arch}_VFP_DP)
+            list(REMOVE_ITEM ${arch}_SOURCES ${arm_Thumb1_VFPv2_DP_SOURCES})
+          endif()
         endif()
       endif()
 

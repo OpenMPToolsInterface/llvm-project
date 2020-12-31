@@ -418,7 +418,7 @@ class MachineBlockPlacement : public MachineFunctionPass {
   /// The return value is used to model tail duplication cost.
   BlockFrequency getBlockCountOrFrequency(const MachineBasicBlock *BB) {
     if (UseProfileCount) {
-      auto Count = MBFI->getMBFI().getBlockProfileCount(BB);
+      auto Count = MBFI->getBlockProfileCount(BB);
       if (Count)
         return *Count;
       else
@@ -449,10 +449,6 @@ class MachineBlockPlacement : public MachineFunctionPass {
       const MachineBasicBlock *BB, const BlockChain &Chain,
       const BlockFilterSet *BlockFilter,
       SmallVector<MachineBasicBlock *, 4> &Successors);
-  bool shouldPredBlockBeOutlined(
-      const MachineBasicBlock *BB, const MachineBasicBlock *Succ,
-      const BlockChain &Chain, const BlockFilterSet *BlockFilter,
-      BranchProbability SuccProb, BranchProbability HotProb);
   bool isBestSuccessor(MachineBasicBlock *BB, MachineBasicBlock *Pred,
                        BlockFilterSet *BlockFilter);
   void findDuplicateCandidates(SmallVectorImpl<MachineBasicBlock *> &Candidates,
@@ -1677,11 +1673,9 @@ MachineBasicBlock *MachineBlockPlacement::selectBestCandidateBlock(
   // worklist of already placed entries.
   // FIXME: If this shows up on profiles, it could be folded (at the cost of
   // some code complexity) into the loop below.
-  WorkList.erase(llvm::remove_if(WorkList,
-                                 [&](MachineBasicBlock *BB) {
-                                   return BlockToChain.lookup(BB) == &Chain;
-                                 }),
-                 WorkList.end());
+  llvm::erase_if(WorkList, [&](MachineBasicBlock *BB) {
+    return BlockToChain.lookup(BB) == &Chain;
+  });
 
   if (WorkList.empty())
     return nullptr;
@@ -3359,8 +3353,8 @@ bool MachineBlockPlacement::runOnMachineFunction(MachineFunction &MF) {
   // No tail merging opportunities if the block number is less than four.
   if (MF.size() > 3 && EnableTailMerge) {
     unsigned TailMergeSize = TailDupSize + 1;
-    BranchFolder BF(/*EnableTailMerge=*/true, /*CommonHoist=*/false, *MBFI,
-                    *MBPI, PSI, TailMergeSize);
+    BranchFolder BF(/*DefaultEnableTailMerge=*/true, /*CommonHoist=*/false,
+                    *MBFI, *MBPI, PSI, TailMergeSize);
 
     if (BF.OptimizeFunction(MF, TII, MF.getSubtarget().getRegisterInfo(), MLI,
                             /*AfterPlacement=*/true)) {

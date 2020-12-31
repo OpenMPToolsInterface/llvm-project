@@ -106,6 +106,7 @@ macro(add_cuda_bc_library)
     --cuda-device-only
     -Wno-unused-value
     -x hip
+    -nogpulib -nogpuinc
     -O${optimization_level}
     --cuda-gpu-arch=${mcpu}
     ${CUDA_DEBUG}

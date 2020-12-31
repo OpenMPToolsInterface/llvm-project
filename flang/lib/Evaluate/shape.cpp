@@ -626,6 +626,43 @@ auto GetShapeHelper::operator()(const ProcedureRef &call) const -> Result {
           }
         }
       }
+    } else if (intrinsic->name == "transfer") {
+      if (call.arguments().size() == 3 && call.arguments().at(2)) {
+        // SIZE= is present; shape is vector [SIZE=]
+        if (const auto *size{
+                UnwrapExpr<Expr<SomeInteger>>(call.arguments().at(2))}) {
+          return Shape{
+              MaybeExtentExpr{ConvertToType<ExtentType>(common::Clone(*size))}};
+        }
+      } else if (auto moldTypeAndShape{
+                     characteristics::TypeAndShape::Characterize(
+                         call.arguments().at(1), context_)}) {
+        if (GetRank(moldTypeAndShape->shape()) == 0) {
+          // SIZE= is absent and MOLD= is scalar: result is scalar
+          return Scalar();
+        } else {
+          // SIZE= is absent and MOLD= is array: result is vector whose
+          // length is determined by sizes of types.  See 16.9.193p4 case(ii).
+          if (auto sourceTypeAndShape{
+                  characteristics::TypeAndShape::Characterize(
+                      call.arguments().at(0), context_)}) {
+            auto sourceElements{
+                GetSize(common::Clone(sourceTypeAndShape->shape()))};
+            auto sourceElementBytes{
+                sourceTypeAndShape->MeasureSizeInBytes(&context_)};
+            auto moldElementBytes{
+                moldTypeAndShape->MeasureSizeInBytes(&context_)};
+            if (sourceElements && sourceElementBytes && moldElementBytes) {
+              ExtentExpr extent{Fold(context_,
+                  ((std::move(*sourceElements) *
+                       std::move(*sourceElementBytes)) +
+                      common::Clone(*moldElementBytes) - ExtentExpr{1}) /
+                      common::Clone(*moldElementBytes))};
+              return Shape{MaybeExtentExpr{std::move(extent)}};
+            }
+          }
+        }
+      }
     } else if (intrinsic->name == "transpose") {
       if (call.arguments().size() >= 1) {
         if (auto shape{(*this)(call.arguments().at(0))}) {
@@ -645,26 +682,29 @@ auto GetShapeHelper::operator()(const ProcedureRef &call) const -> Result {
   return std::nullopt;
 }
 
+// Check conformance of the passed shapes.  Only return true if we can verify
+// that they conform
 bool CheckConformance(parser::ContextualMessages &messages, const Shape &left,
     const Shape &right, const char *leftIs, const char *rightIs) {
-  if (!left.empty() && !right.empty()) {
-    int n{GetRank(left)};
-    int rn{GetRank(right)};
+  int n{GetRank(left)};
+  int rn{GetRank(right)};
+  if (n != 0 && rn != 0) {
     if (n != rn) {
       messages.Say("Rank of %1$s is %2$d, but %3$s has rank %4$d"_err_en_US,
           leftIs, n, rightIs, rn);
       return false;
     } else {
       for (int j{0}; j < n; ++j) {
-        if (auto leftDim{ToInt64(left[j])}) {
-          if (auto rightDim{ToInt64(right[j])}) {
-            if (*leftDim != *rightDim) {
-              messages.Say("Dimension %1$d of %2$s has extent %3$jd, "
-                           "but %4$s has extent %5$jd"_err_en_US,
-                  j + 1, leftIs, *leftDim, rightIs, *rightDim);
-              return false;
-            }
-          }
+        auto leftDim{ToInt64(left[j])};
+        auto rightDim{ToInt64(right[j])};
+        if (!leftDim || !rightDim) {
+          return false;
+        }
+        if (*leftDim != *rightDim) {
+          messages.Say("Dimension %1$d of %2$s has extent %3$jd, "
+                       "but %4$s has extent %5$jd"_err_en_US,
+              j + 1, leftIs, *leftDim, rightIs, *rightDim);
+          return false;
         }
       }
     }

@@ -18,32 +18,7 @@ include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpAsmInterface.td"
-
-def Shape_WitnessType : DialectType<ShapeDialect,
-    CPred<"$_self.isa<::mlir::shape::WitnessType>()">, "witness">,
-    BuildableType<"$_builder.getType<::mlir::shape::WitnessType>()"> {
-  let typeDescription = [{
-    A witness is a structural device in the compiler to maintain ordering of
-    code relying on information obtained from passing assertions. Witnesses do
-    not represent any physical data.
-
-    "cstr_" operations will return witnesses and be lowered into assertion logic
-    when not resolvable at compile time.
-
-    "assuming_" operations will take witnesses as input and represent only
-    information to the compiler, so they do not exist in executing code. Code
-    that is dependent on "assuming_" operations can assume all cstr operations
-    transitively before are honored as true.
-
-    These abstractions are intended to allow the compiler more freedom with
-    assertions by merely showing the assertion through dataflow at this time
-    rather than a side effecting operation that acts as a barrier. This can be
-    viewed similarly to a compiler representation of promises from asynchronous,
-    possibly crashing assertions. Reliant code will not be reordered to before
-    the code and non-reliant code can be reordered freely, and there are no
-    guarantees on the final ordering of the assertions or their related code.
-  }];
-}
+include "mlir/IR/SymbolInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Shape op definitions
@@ -53,47 +28,61 @@ def Shape_WitnessType : DialectType<ShapeDialect,
 class Shape_Op<string mnemonic, list<OpTrait> traits = []> :
     Op<ShapeDialect, mnemonic, traits>;
 
-def Shape_AddOp : Shape_Op<"add", [Commutative, SameOperandsAndResultType]> {
-  let summary = "Addition of sizes";
+def Shape_AddOp : Shape_Op<"add", [Commutative, NoSideEffect]> {
+  let summary = "Addition of sizes and indices";
   let description = [{
-    Adds two valid sizes as follows:
-    * lhs + rhs = unknown if either lhs or rhs unknown;
-    * lhs + rhs = (int)lhs + (int)rhs if known;
+    Adds two sizes or indices. If either operand is an error it will be
+    propagated to the result. The operands can be of type `size` or `index`. If
+    at least one of the operands can hold an error, i.e. if it is of type `size`,
+    then also the result must be of type `size`.
   }];
 
-  let arguments = (ins Shape_SizeType:$lhs, Shape_SizeType:$rhs);
-  let results = (outs Shape_SizeType:$result);
+  let arguments = (ins Shape_SizeOrIndexType:$lhs, Shape_SizeOrIndexType:$rhs);
+  let results = (outs Shape_SizeOrIndexType:$result);
 
-  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
+  }];
+
+  let verifier = [{ return verifySizeOrIndexOp(*this); }];
 }
 
 def Shape_BroadcastOp : Shape_Op<"broadcast", [Commutative]> {
   let summary = "Returns the broadcasted output shape of two inputs";
   let description = [{
-    Computes the broadcasted output shape following:
-    1. If any inputs are unranked, output is unranked;
-    2. Else the input array with number of dimensions smaller than the max
-       input dimension, has 1’s prepended to its shapes and the output shape is
-       calculated as follows:
+    Returns the broadcasted shape for two input shapes or extent tensors. Both
+    operands can be of type `shape.shape` or `tensor<?xindex>`. The result is of
+    type `shape.shape` and, if both operands are tensors, may be of type
+    `tensor<?xindex>`.
 
-           output[i] = lhs[i] if lhs[i] == rhs[i] or rhs[i] is unknown/undefined
-                     = rhs[i] if lhs[i] is unknown/undefined
-                     = lhs[i] if rhs[i] == 1
-                     = rhs[i] if lhs[i] == 1
-                     = error  if lhs[i] != rhs[i]
+    If the two operand shapes are of different rank the smaller one is padded
+    with 1's from the left. The resulting broadcasted shape is then defined as
 
-    Op has an optional string attribute for the error case where there is no
-    broadcastable output shape possible for the given inputs.
+        result[i] = lhs[i] if lhs[i] == rhs[i]
+                  = lhs[i] if rhs[i] == 1
+                  = rhs[i] if lhs[i] == 1.
+
+    In case the resulting shape is undefined, i.e. if corresponding extents are
+    different from each other but none is 1, the result is an error shape.
+    Likewise error values are propagated if any of the operands holds an error
+    value. If the result type is an extent tensor (and can therefore not hold
+    the error value) the behavior may be undefined. The optional string
+    attribute can be used to describe the error case.
   }];
 
   let arguments = (ins Shape_ShapeOrExtentTensorType:$lhs,
                        Shape_ShapeOrExtentTensorType:$rhs,
                        OptionalAttr<StrAttr>:$error);
-  let results = (outs Shape_ShapeType:$result);
+  let results = (outs Shape_ShapeOrExtentTensorType:$result);
 
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)";
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
+  }];
 
+  let verifier = [{ return ::verifyShapeOrExtentTensorOp(*this); }];
   let hasFolder = 1;
+
+  let verifier = [{ return ::verifyShapeOrExtentTensorOp(*this); }];
 }
 
 def Shape_ConstShapeOp : Shape_Op<"const_shape", [ConstantLike, NoSideEffect]> {
@@ -135,9 +124,7 @@ def Shape_ConstSizeOp : Shape_Op<"const_size", [
   let arguments = (ins IndexAttr:$value);
   let results = (outs Shape_SizeType:$result);
 
-  let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &result, int64_t value">
-  ];
+  let builders = [OpBuilderDAG<(ins "int64_t":$value)>];
 
   let assemblyFormat = "$value attr-dict";
   let hasFolder = 1;
@@ -192,7 +179,33 @@ def Shape_FromExtentTensorOp : Shape_Op<"from_extent_tensor", [NoSideEffect]> {
   let arguments = (ins IndexTensor:$input);
   let results = (outs Shape_ShapeType:$result);
 
-  let assemblyFormat = "attr-dict $input `:` type($input)";
+  let assemblyFormat = "$input attr-dict `:` type($input)";
+}
+
+def Shape_IsBroadcastableOp : Shape_Op<"is_broadcastable", [Commutative]> {
+  let summary = "Determines if 2 shapes can be successfully broadcasted";
+  let description = [{
+    Given two input shapes or extent tensors, return a predicate specifying if
+    they are broadcastable. This broadcastable follows the same logic as what
+    shape.broadcast documents.
+
+    Concretely, shape.is_broadcastable returning true implies that
+    shape.broadcast will not give an error, and shape.cstr_broadcastable will
+    not result in an assertion failure. Similarly, false implies an error or
+    assertion failure.
+
+    Example:
+    ```mlir
+    %true = shape.is_broadcastable [2,2], [3,1,2]
+    %false = shape.is_broadcastable [2,2], [3,2]
+    ```
+  }];
+
+  let arguments = (ins Shape_ShapeOrExtentTensorType:$lhs,
+                       Shape_ShapeOrExtentTensorType:$rhs);
+  let results = (outs I1:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)";
 }
 
 def Shape_RankOp : Shape_Op<"rank", [NoSideEffect]> {
@@ -204,7 +217,7 @@ def Shape_RankOp : Shape_Op<"rank", [NoSideEffect]> {
   let arguments = (ins Shape_ShapeOrExtentTensorType:$shape);
   let results = (outs Shape_SizeOrIndexType:$rank);
 
-  let assemblyFormat = "$shape `:` type($shape) `->` type($rank) attr-dict";
+  let assemblyFormat = "$shape attr-dict `:` type($shape) `->` type($rank)";
 
   let hasFolder = 1;
   let hasCanonicalizer = 1;
@@ -224,7 +237,7 @@ def Shape_ToExtentTensorOp : Shape_Op<"to_extent_tensor", [NoSideEffect]> {
   let arguments = (ins Shape_ShapeOrExtentTensorType:$input);
   let results = (outs IndexTensor:$result);
 
-  let assemblyFormat = "attr-dict $input `:` type($input) `->` type($result)";
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 
   let hasFolder = 1;
 }
@@ -238,13 +251,12 @@ def Shape_GetExtentOp : Shape_Op<"get_extent", [NoSideEffect]> {
   let arguments = (ins Shape_ShapeOrExtentTensorType:$shape,
                        Shape_SizeOrIndexType:$dim);
   let results = (outs Shape_SizeOrIndexType:$extent);
-  let assemblyFormat = "$shape `,` $dim `:` type($shape) `,` type($dim) `->` "
-                       "type($extent) attr-dict";
+  let assemblyFormat = "$shape `,` $dim attr-dict `:` type($shape) `,` type($dim) `->` "
+                       "type($extent)";
 
   let builders = [
     // Builder that allows passing a constant dimension as a simple integer.
-    OpBuilder<"OpBuilder &builder, OperationState &result, Value shape, "
-              "int64_t dim">
+    OpBuilderDAG<(ins "Value":$shape, "int64_t":$dim)>
   ];
 
   let extraClassDeclaration = [{
@@ -323,7 +335,7 @@ def Shape_MulOp : Shape_Op<"mul", [Commutative, NoSideEffect]> {
   let results = (outs Shape_SizeOrIndexType:$result);
 
   let assemblyFormat = [{
-    $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `->` type($result) attr-dict
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
   }];
 
   let verifier = [{ return ::verifySizeOrIndexOp(*this); }];
@@ -343,11 +355,9 @@ def Shape_NumElementsOp : Shape_Op<"num_elements", [NoSideEffect]> {
   let arguments = (ins Shape_ShapeOrExtentTensorType:$shape);
   let results = (outs Shape_SizeOrIndexType:$result);
 
-  let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &result, Value shape">,
-  ];
+  let builders = [OpBuilderDAG<(ins "Value":$shape)>];
 
-  let assemblyFormat = "$shape `:` type($shape) `->` type($result) attr-dict";
+  let assemblyFormat = "$shape attr-dict `:` type($shape) `->` type($result)";
 
   let hasFolder = 1;
   let verifier = [{ return ::verifySizeOrIndexOp(*this); }];
@@ -394,10 +404,7 @@ def Shape_ReduceOp : Shape_Op<"reduce",
   let results = (outs Variadic<AnyType>:$result);
   let regions = (region SizedRegion<1>:$region);
 
-  let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &result, "
-              "Value shape, ValueRange initVals">,
-  ];
+  let builders = [OpBuilderDAG<(ins "Value":$shape, "ValueRange":$initVals)>];
 
   let verifier = [{ return ::verify(*this); }];
   let printer = [{ return ::print(p, *this); }];
@@ -415,11 +422,9 @@ def Shape_ShapeOfOp : Shape_Op<"shape_of", [NoSideEffect]> {
   let arguments = (ins AnyTypeOf<[AnyShaped, Shape_ValueShapeType]>:$arg);
   let results = (outs Shape_ShapeOrExtentTensorType:$result);
 
-  let assemblyFormat = "$arg `:` type($arg) `->` type($result) attr-dict";
+  let assemblyFormat = "$arg attr-dict `:` type($arg) `->` type($result)";
 
-  let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &result, Value arg">
-  ];
+  let builders = [OpBuilderDAG<(ins "Value":$arg)>];
 
   let verifier = [{ return ::verifyShapeOrExtentTensorOp(*this); }];
   let hasCanonicalizer = 1;
@@ -435,7 +440,7 @@ def Shape_SizeToIndexOp : Shape_Op<"size_to_index", [NoSideEffect]> {
     arguments.
   }];
 
-  let arguments = (outs Shape_SizeOrIndexType:$arg);
+  let arguments = (ins Shape_SizeOrIndexType:$arg);
   let results = (outs Index:$result);
 
   let assemblyFormat = "$arg attr-dict `:` type($arg)";
@@ -444,8 +449,51 @@ def Shape_SizeToIndexOp : Shape_Op<"size_to_index", [NoSideEffect]> {
   let hasCanonicalizer = 1;
 }
 
+def Shape_WithOp : Shape_Op<"with_shape", [NoSideEffect]> {
+  let summary = "Returns ValueShape with given shape";
+  let description = [{
+    Returns ValueShape with the shape updated to match the shape operand. That
+    is a new ValueShape tuple is created with value equal to `operand`'s
+    value and shape equal to `shape`. If the ValueShape and given `shape` are
+    non-conformant, then the returned ValueShape will represent an error of
+    this mismatch. Similarly if either inputs are in an error state, then an
+    error is propagated.
+
+    Usage:
+      %0 = shape.with_shape %1, %2 : tensor<...>, !shape.shape
+
+    This is used, for example, where one combines shape function calculations
+    and/or call one shape function from another. E.g.,
+
+    ```mlir
+    func @shape_foobah(%a: !shape.value_shape,
+                       %b: !shape.value_shape,
+                       %c: !shape.value_shape) -> !shape.shape {
+      %0 = call @shape_foo(%a, %b) :
+        (!shape.value_shape, !shape.value_shape) -> !shape.shape
+      %1 = shape.with_shape %b, %0 : !shape.value_shape, !shape.shape
+      %2 = call @shape_bah(%c, %1) :
+        (!shape.value_shape, !shape.value_shape) -> !shape.shape
+      return %2 : !shape.shape
+    }
+    ```
+
+    This op need not be a refinement of the shape. In non-error cases the input
+    ValueShape's value and shape are conformant and so too for the output, but
+    the result may be less specified than `operand`'s shape as `shape` is
+    merely used to construct the new ValueShape. If join behavior is desired
+    then a join op should be used.
+  }];
+
+  let arguments = (ins AnyTypeOf<[AnyShaped, Shape_ValueShapeType]>:$operand,
+                       Shape_ShapeType:$shape);
+  let results = (outs Shape_ValueShapeType:$result);
+
+  let assemblyFormat = "operands attr-dict `:` type($operand) `,` type($shape)";
+}
+
 def Shape_YieldOp : Shape_Op<"yield",
-    [HasParent<"ReduceOp">,
+    [HasParent<"ReduceOp, FunctionLibraryOp">,
      NoSideEffect,
      ReturnLike,
      Terminator]> {
@@ -453,9 +501,9 @@ def Shape_YieldOp : Shape_Op<"yield",
 
   let arguments = (ins Variadic<AnyType>:$operands);
 
-  let builders = [OpBuilder<
-    "OpBuilder &b, OperationState &result", [{ build(b, result, llvm::None); }]
-  >];
+  let builders = [OpBuilderDAG<(ins),
+    [{ build($_builder, $_state, llvm::None); }]>
+  ];
 
   let verifier = [{ return ::verify(*this); }];
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
@@ -550,6 +598,8 @@ def Shape_AnyOp : Shape_Op<"any", [Commutative,
   let arguments = (ins Variadic<Shape_ShapeOrExtentTensorType>:$inputs);
   let results = (outs Shape_ShapeOrExtentTensorType:$result);
 
+  let assemblyFormat = "$inputs attr-dict `:` type($inputs) `->` type($result)";
+
   let hasFolder = 1;
 }
 
@@ -586,6 +636,7 @@ def Shape_AssumingAllOp : Shape_Op<"assuming_all", [Commutative, NoSideEffect]> 
 
 def Shape_AssumingOp : Shape_Op<"assuming",
                            [SingleBlockImplicitTerminator<"AssumingYieldOp">,
+                            DeclareOpInterfaceMethods<RegionBranchOpInterface>,
                             RecursiveSideEffects]> {
   let summary = "Execute the region";
   let description = [{
@@ -602,6 +653,7 @@ def Shape_AssumingOp : Shape_Op<"assuming",
 
   let printer = [{ return ::print(p, *this); }];
   let parser = [{ return ::parse$cppClass(parser, result); }];
+  let verifier = [{ return RegionBranchOpInterface::verifyTypes(*this); }];
 
   let extraClassDeclaration = [{
     // Inline the region into the region containing the AssumingOp and delete
@@ -626,10 +678,7 @@ def Shape_AssumingYieldOp : Shape_Op<"assuming_yield",
 
   let arguments = (ins Variadic<AnyType>:$operands);
 
-  let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &result",
-    [{ /* nothing to do */ }]>
-  ];
+  let builders = [OpBuilderDAG<(ins), [{ /* nothing to do */ }]>];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }
@@ -654,7 +703,7 @@ def Shape_CstrBroadcastableOp : Shape_Op<"cstr_broadcastable", [Commutative]> {
                        Shape_ShapeOrExtentTensorType:$rhs);
   let results = (outs Shape_WitnessType:$result);
 
-  let assemblyFormat = "$lhs `,` $rhs `:` type($lhs) `,` type($rhs) attr-dict";
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)";
 
   let hasCanonicalizer = 1;
   let hasFolder = 1;
@@ -705,5 +754,89 @@ def Shape_ConstWitnessOp : Shape_Op<"const_witness", [ConstantLike, NoSideEffect
   let hasFolder = 1;
 }
 
+def Shape_CstrRequireOp : Shape_Op<"cstr_require", []> {
+  let summary = "Represents a runtime assertion that an i1 is `true`";
+  let description = [{
+    Represents a runtime assertion that an i1 is true. It returns a
+    !shape.witness to order this assertion.
+
+    For simplicity, prefer using other cstr_* ops if they are available for a
+    given constraint.
+
+    Example:
+    ```mlir
+    %bool = ...
+    %w0 = shape.cstr_require %bool, "msg" // Passing if `%bool` is true.
+    ```
+
+    Since this op can be used to express many different possible assertions
+    (depending on whatever computation calculated `pred`), the `msg`
+    should clarify the nature of the assertion for users.
+  }];
+  let arguments = (ins I1:$pred, StrAttr:$msg);
+  let results = (outs Shape_WitnessType:$result);
+
+  let assemblyFormat = "$pred `,` $msg attr-dict";
+
+  let hasFolder = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// Shape collection ops.
+//===----------------------------------------------------------------------===//
+
+def Shape_FunctionLibraryOp : Shape_Op<"function_library",
+    [AffineScope, IsolatedFromAbove, NoRegionArguments, SymbolTable, Symbol,
+     SingleBlockImplicitTerminator<"ShapeFunctionLibraryTerminatorOp">]> {
+  let summary = "Represents shape functions and corresponding ops";
+  let description = [{
+    Represents a list of shape functions and the ops whose shape transfer
+    functions they represent.
+
+    Example:
+
+    ```mlir
+    shape.function_library {
+      func @same_result_shape(%arg: !shape.value_shape) -> !shape.shape {
+        %0 = shape.shape_of %arg : !shape.value_shape -> !shape.shape
+        return %0 : !shape.shape
+      }
+    } mapping {
+      std.atan = @same_result_shape
+    }
+    ```
+  }];
+
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       OptionalAttr<StrAttr>:$sym_visibility);
+  let arguments = (ins DictionaryAttr:$mapping);
+  let regions = (region AnyRegion:$body);
+
+  let extraClassDeclaration = [{
+    /// Returns an associated shape function for an operation if defined.
+    FuncOp getShapeFunction(Operation *op);
+  }];
+
+  let builders = [OpBuilderDAG<(ins "StringRef":$name)>];
+  let skipDefaultBuilders = 1;
+
+  let printer = [{ ::print(p, *this); }];
+  let parser = [{ return ::parse$cppClass(parser, result); }];
+}
+
+//===----------------------------------------------------------------------===//
+// ShapeFunctionLibraryTerminatorOp
+//===----------------------------------------------------------------------===//
+
+def ShapeFunctionLibraryTerminatorOp : Shape_Op<"fn_lib_terminator",
+    [Terminator, HasParent<"FunctionLibraryOp">]> {
+  let summary = "A pseudo op that marks the end of a shape function library";
+  let description = [{
+    `shape_fn_lib_terminator` is a special pseudo terminator operation for the
+    shape function library. It has no semantic meaning beyond keeping the body
+    well-formed.
+  }];
+  let assemblyFormat = "attr-dict";
+}
 
 #endif // SHAPE_OPS

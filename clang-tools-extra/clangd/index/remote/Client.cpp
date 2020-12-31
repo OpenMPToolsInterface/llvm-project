@@ -9,13 +9,14 @@
 #include <grpc++/grpc++.h>
 
 #include "Client.h"
-#include "Index.grpc.pb.h"
+#include "Service.grpc.pb.h"
 #include "index/Index.h"
-#include "index/Serialization.h"
 #include "marshalling/Marshalling.h"
 #include "support/Logger.h"
 #include "support/Trace.h"
+#include "clang/Basic/Version.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Error.h"
 
 #include <chrono>
 
@@ -27,7 +28,8 @@ namespace {
 class IndexClient : public clangd::SymbolIndex {
   template <typename RequestT, typename ReplyT>
   using StreamingCall = std::unique_ptr<grpc::ClientReader<ReplyT>> (
-      remote::SymbolIndex::Stub::*)(grpc::ClientContext *, const RequestT &);
+      remote::v1::SymbolIndex::Stub::*)(grpc::ClientContext *,
+                                        const RequestT &);
 
   template <typename RequestT, typename ReplyT, typename ClangdRequestT,
             typename CallbackT>
@@ -39,6 +41,7 @@ class IndexClient : public clangd::SymbolIndex {
     const auto RPCRequest = ProtobufMarshaller->toProtobuf(Request);
     SPAN_ATTACH(Tracer, "Request", RPCRequest.DebugString());
     grpc::ClientContext Context;
+    Context.AddMetadata("version", clang::getClangToolFullVersion("clangd"));
     std::chrono::system_clock::time_point Deadline =
         std::chrono::system_clock::now() + DeadlineWaitingTime;
     Context.set_deadline(Deadline);
@@ -48,12 +51,14 @@ class IndexClient : public clangd::SymbolIndex {
     unsigned FailedToParse = 0;
     while (Reader->Read(&Reply)) {
       if (!Reply.has_stream_result()) {
-        FinalResult = Reply.final_result();
+        FinalResult = Reply.final_result().has_more();
         continue;
       }
       auto Response = ProtobufMarshaller->fromProtobuf(Reply.stream_result());
       if (!Response) {
-        elog("Received invalid {0}", ReplyT::descriptor()->name());
+        elog("Received invalid {0}: {1}. Reason: {2}",
+             ReplyT::descriptor()->name(), Reply.stream_result().DebugString(),
+             Response.takeError());
         ++FailedToParse;
         continue;
       }
@@ -70,39 +75,49 @@ public:
   IndexClient(
       std::shared_ptr<grpc::Channel> Channel, llvm::StringRef ProjectRoot,
       std::chrono::milliseconds DeadlineTime = std::chrono::milliseconds(1000))
-      : Stub(remote::SymbolIndex::NewStub(Channel)),
+      : Stub(remote::v1::SymbolIndex::NewStub(Channel)),
         ProtobufMarshaller(new Marshaller(/*RemoteIndexRoot=*/"",
                                           /*LocalIndexRoot=*/ProjectRoot)),
-        DeadlineWaitingTime(DeadlineTime) {}
+        DeadlineWaitingTime(DeadlineTime) {
+    assert(!ProjectRoot.empty());
+  }
 
   void lookup(const clangd::LookupRequest &Request,
-              llvm::function_ref<void(const clangd::Symbol &)> Callback) const {
-    streamRPC(Request, &remote::SymbolIndex::Stub::Lookup, Callback);
+              llvm::function_ref<void(const clangd::Symbol &)> Callback)
+      const override {
+    streamRPC(Request, &remote::v1::SymbolIndex::Stub::Lookup, Callback);
+  }
+
+  bool fuzzyFind(const clangd::FuzzyFindRequest &Request,
+                 llvm::function_ref<void(const clangd::Symbol &)> Callback)
+      const override {
+    return streamRPC(Request, &remote::v1::SymbolIndex::Stub::FuzzyFind,
+                     Callback);
   }
 
   bool
-  fuzzyFind(const clangd::FuzzyFindRequest &Request,
-            llvm::function_ref<void(const clangd::Symbol &)> Callback) const {
-    return streamRPC(Request, &remote::SymbolIndex::Stub::FuzzyFind, Callback);
+  refs(const clangd::RefsRequest &Request,
+       llvm::function_ref<void(const clangd::Ref &)> Callback) const override {
+    return streamRPC(Request, &remote::v1::SymbolIndex::Stub::Refs, Callback);
   }
 
-  bool refs(const clangd::RefsRequest &Request,
-            llvm::function_ref<void(const clangd::Ref &)> Callback) const {
-    return streamRPC(Request, &remote::SymbolIndex::Stub::Refs, Callback);
-  }
-
-  // FIXME(kirillbobyrev): Implement this.
   void
-  relations(const clangd::RelationsRequest &,
-            llvm::function_ref<void(const SymbolID &, const clangd::Symbol &)>)
-      const {}
+  relations(const clangd::RelationsRequest &Request,
+            llvm::function_ref<void(const SymbolID &, const clangd::Symbol &)>
+                Callback) const override {
+    streamRPC(Request, &remote::v1::SymbolIndex::Stub::Relations,
+              // Unpack protobuf Relation.
+              [&](std::pair<SymbolID, clangd::Symbol> SubjectAndObject) {
+                Callback(SubjectAndObject.first, SubjectAndObject.second);
+              });
+  }
 
   // IndexClient does not take any space since the data is stored on the
   // server.
-  size_t estimateMemoryUsage() const { return 0; }
+  size_t estimateMemoryUsage() const override { return 0; }
 
 private:
-  std::unique_ptr<remote::SymbolIndex::Stub> Stub;
+  std::unique_ptr<remote::v1::SymbolIndex::Stub> Stub;
   std::unique_ptr<Marshaller> ProtobufMarshaller;
   // Each request will be terminated if it takes too long.
   std::chrono::milliseconds DeadlineWaitingTime;
