@@ -211,8 +211,16 @@ class ompd_address_space(object):
 		if 'omp_proc_bind' in field_names and 'bind-var' in self.icv_map:
 			ompt_proc_bind = thread_data['omp_proc_bind']
 			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.get_current_task_handle(), self.icv_map['bind-var'][1], self.icv_map['bind-var'][0])
-			if icv_value != ompt_proc_bind:
-				print('OMPT-OMPD mismatch: omp_proc_bind (%d) does not match OMPD proc bind according to ICVs (%d)!' % (ompt_proc_bind, icv_value))
+			if icv_value is None:
+				icv_string = ompdModule.call_ompd_get_icv_string_from_scope(curr_thread.get_current_task_handle(), self.icv_map['bind-var'][1], self.icv_map['bind-var'][0])
+				if icv_string is None:
+					print('OMPT-OMPD mismatch: omp_proc_bind (%d) does not match OMPD proc bind according to ICVs (None Object)' % (ompt_proc_bind))
+				else:
+					if ompt_proc_bind != int(icv_string.split(',')[0]):
+						print('OMPT-OMPD mismatch: omp_proc_bind (%d) does not match OMPD proc bind according to ICVs (%d)!' % (ompt_proc_bind, int(icv_string.split(',')[0])))
+			else:
+				if ompt_proc_bind != icv_value:
+					print('OMPT-OMPD mismatch: omp_proc_bind (%d) does not match OMPD proc bind according to ICVs (%d)!' % (ompt_proc_bind, icv_value))
 		
 		# compare enter and exit frames
 		if 'ompt_frame_list' in field_names:
