@@ -585,7 +585,7 @@ void __kmpc_end_serialized_parallel(ident_t *loc, kmp_int32 global_tid) {
 #endif /* KMP_ARCH_X86 || KMP_ARCH_X86_64 */
 
     __kmp_pop_current_task_from_thread(this_thr);
-#ifdef OMPD_SUPPORT
+#if OMPD_SUPPORT
   if ( ompd_state & OMPD_ENABLE_BP )
     ompd_bp_parallel_end ();
 #endif
