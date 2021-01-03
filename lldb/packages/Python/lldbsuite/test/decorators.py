@@ -3,6 +3,8 @@ from __future__ import absolute_import
 # System modules
 from distutils.version import LooseVersion
 from functools import wraps
+import ctypes
+import locale
 import os
 import platform
 import re
@@ -84,8 +86,10 @@ def _match_decorator_property(expected, actual):
     else:
         return expected == actual
 
+def expectedFailure(func):
+    return unittest2.expectedFailure(func)
 
-def expectedFailure(expected_fn, bugnumber=None):
+def expectedFailureIfFn(expected_fn, bugnumber=None):
     def expectedFailure_impl(func):
         if isinstance(func, type) and issubclass(func, unittest2.TestCase):
             raise Exception(
@@ -93,11 +97,7 @@ def expectedFailure(expected_fn, bugnumber=None):
 
         @wraps(func)
         def wrapper(*args, **kwargs):
-            self = args[0]
-            if funcutils.requires_self(expected_fn):
-                xfail_reason = expected_fn(self)
-            else:
-                xfail_reason = expected_fn()
+            xfail_reason = expected_fn(*args, **kwargs)
             if xfail_reason is not None:
                 xfail_func = unittest2.expectedFailure(func)
                 xfail_func(*args, **kwargs)
@@ -132,7 +132,7 @@ def skipTestIfFn(expected_fn, bugnumber=None):
             if reason is not None:
                 self.skipTest(reason)
             else:
-                func(*args, **kwargs)
+                return func(*args, **kwargs)
         return wrapper
 
     # Some decorators can be called both with no arguments (e.g. @expectedFailureWindows)
@@ -234,7 +234,7 @@ def _decorateTest(mode,
     if mode == DecorateMode.Skip:
         return skipTestIfFn(fn, bugnumber)
     elif mode == DecorateMode.Xfail:
-        return expectedFailure(fn, bugnumber)
+        return expectedFailureIfFn(fn, bugnumber)
     else:
         return None
 
@@ -374,22 +374,19 @@ def apple_simulator_test(platform):
 def debugserver_test(func):
     """Decorate the item as a debugserver test."""
     def should_skip_debugserver_test():
-        return "debugserver tests" if configuration.dont_do_debugserver_test else None
+        return ("debugserver tests"
+                if not configuration.debugserver_platform
+                else None)
     return skipTestIfFn(should_skip_debugserver_test)(func)
 
 
 def llgs_test(func):
     """Decorate the item as a lldb-server test."""
     def should_skip_llgs_tests():
-        return "llgs tests" if configuration.dont_do_llgs_test else None
+        return ("llgs tests"
+                if not configuration.llgs_platform
+                else None)
     return skipTestIfFn(should_skip_llgs_tests)(func)
-
-
-def not_remote_testsuite_ready(func):
-    """Decorate the item as a test which is not ready yet for remote testsuite."""
-    def is_remote():
-        return "Not ready for remote testsuite" if lldb.remote_platform else None
-    return skipTestIfFn(is_remote)(func)
 
 
 def expectedFailureOS(
@@ -427,7 +424,7 @@ def expectedFailureAndroid(bugnumber=None, api_levels=None, archs=None):
         arch - A sequence of architecture names specifying the architectures
             for which a test is expected to fail. None means all architectures.
     """
-    return expectedFailure(
+    return expectedFailureIfFn(
         _skip_for_android(
             "xfailing on android",
             api_levels,
@@ -502,9 +499,7 @@ def skipIfOutOfTreeDebugserver(func):
 
 def skipIfRemote(func):
     """Decorate the item to skip tests if testing remotely."""
-    def is_remote():
-        return "skip on remote platform" if lldb.remote_platform else None
-    return skipTestIfFn(is_remote)(func)
+    return unittest2.skipIf(lldb.remote_platform, "skip on remote platform")(func)
 
 
 def skipIfNoSBHeaders(func):
@@ -513,10 +508,9 @@ def skipIfNoSBHeaders(func):
         if lldb.remote_platform:
             return "skip because SBHeaders tests make no sense remotely"
 
-        if lldbplatformutil.getHostPlatform() == 'darwin':
+        if lldbplatformutil.getHostPlatform() == 'darwin' and configuration.lldb_framework_path:
             header = os.path.join(
-                os.environ["LLDB_LIB_DIR"],
-                'LLDB.framework',
+                configuration.lldb_framework_path,
                 'Versions',
                 'Current',
                 'Headers',
@@ -540,10 +534,9 @@ def skipIfNoSBHeaders(func):
 def skipIfRosetta(bugnumber):
     """Skip a test when running the testsuite on macOS under the Rosetta translation layer."""
     def is_running_rosetta(self):
-        if not lldbplatformutil.getPlatform() in ['darwin', 'macosx']:
-            return "not on macOS"
-        if (platform.uname()[5] == "arm") and (self.getArchitecture() == "x86_64"):
-            return "skipped under Rosetta"
+        if lldbplatformutil.getPlatform() in ['darwin', 'macosx']:
+            if (platform.uname()[5] == "arm") and (self.getArchitecture() == "x86_64"):
+                return "skipped under Rosetta"
         return None
     return skipTestIfFn(is_running_rosetta)
 
@@ -554,22 +547,28 @@ def skipIfiOSSimulator(func):
     return skipTestIfFn(is_ios_simulator)(func)
 
 def skipIfiOS(func):
-    return skipIfPlatform(["ios"])(func)
+    return skipIfPlatform(lldbplatform.translate(lldbplatform.ios))(func)
 
 def skipIftvOS(func):
-    return skipIfPlatform(["tvos"])(func)
+    return skipIfPlatform(lldbplatform.translate(lldbplatform.tvos))(func)
 
 def skipIfwatchOS(func):
-    return skipIfPlatform(["watchos"])(func)
+    return skipIfPlatform(lldbplatform.translate(lldbplatform.watchos))(func)
 
 def skipIfbridgeOS(func):
-    return skipIfPlatform(["bridgeos"])(func)
+    return skipIfPlatform(lldbplatform.translate(lldbplatform.bridgeos))(func)
 
 def skipIfDarwinEmbedded(func):
     """Decorate the item to skip tests that should be skipped on Darwin armv7/arm64 targets."""
     return skipIfPlatform(
         lldbplatform.translate(
             lldbplatform.darwin_embedded))(func)
+
+def skipIfDarwinSimulator(func):
+    """Decorate the item to skip tests that should be skipped on Darwin simulator targets."""
+    return skipIfPlatform(
+        lldbplatform.translate(
+            lldbplatform.darwin_simulator))(func)
 
 def skipIfFreeBSD(func):
     """Decorate the item to skip tests that should be skipped on FreeBSD."""
@@ -596,6 +595,17 @@ def skipIfLinux(func):
 def skipIfWindows(func):
     """Decorate the item to skip tests that should be skipped on Windows."""
     return skipIfPlatform(["windows"])(func)
+
+def skipIfWindowsAndNonEnglish(func):
+    """Decorate the item to skip tests that should be skipped on non-English locales on Windows."""
+    def is_Windows_NonEnglish(self):
+        if sys.platform != "win32":
+            return None
+        kernel = ctypes.windll.kernel32
+        if locale.windows_locale[ kernel.GetUserDefaultUILanguage() ] == "en_US":
+            return None
+        return "skipping non-English Windows locale"
+    return skipTestIfFn(is_Windows_NonEnglish)(func)
 
 def skipUnlessWindows(func):
     """Decorate the item to skip tests that should be skipped on any non-Windows platform."""
@@ -866,8 +876,6 @@ def skipUnlessFeature(feature):
 
 def skipIfReproducer(func):
     """Skip this test if the environment is set up to run LLDB with reproducers."""
-    def is_reproducer():
-        if configuration.capture_path or configuration.replay_path:
-            return "reproducers unsupported"
-        return None
-    return skipTestIfFn(is_reproducer)(func)
+    return unittest2.skipIf(
+        configuration.capture_path or configuration.replay_path,
+        "reproducers unsupported")(func)

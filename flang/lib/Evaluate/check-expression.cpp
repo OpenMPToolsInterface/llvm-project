@@ -29,7 +29,7 @@ public:
   IsConstantExprHelper() : Base{*this} {}
   using Base::operator();
 
-  template <int KIND> bool operator()(const TypeParamInquiry<KIND> &inq) const {
+  bool operator()(const TypeParamInquiry &inq) const {
     return IsKindTypeParameter(inq.parameter());
   }
   bool operator()(const semantics::Symbol &symbol) const {
@@ -43,7 +43,10 @@ public:
   }
   template <typename T> bool operator()(const FunctionRef<T> &call) const {
     if (const auto *intrinsic{std::get_if<SpecificIntrinsic>(&call.proc().u)}) {
-      return intrinsic->name == "kind";
+      // kind is always a constant, and we avoid cascading errors by calling
+      // invalid calls to intrinsics constant
+      return intrinsic->name == "kind" ||
+          intrinsic->name == IntrinsicProcTable::InvalidName;
       // TODO: other inquiry intrinsics
     } else {
       return false;
@@ -152,9 +155,7 @@ public:
     return true;
   }
   bool operator()(const StaticDataObject &) const { return false; }
-  template <int KIND> bool operator()(const TypeParamInquiry<KIND> &) const {
-    return false;
-  }
+  bool operator()(const TypeParamInquiry &) const { return false; }
   bool operator()(const Triplet &x) const {
     return IsConstantExpr(x.lower()) && IsConstantExpr(x.upper()) &&
         IsConstantExpr(x.stride());
@@ -188,6 +189,9 @@ public:
   }
   template <typename T> bool operator()(const Parentheses<T> &x) const {
     return (*this)(x.left());
+  }
+  template <typename T> bool operator()(const FunctionRef<T> &x) const {
+    return false;
   }
   bool operator()(const Relational<SomeType> &) const { return false; }
 
@@ -257,30 +261,29 @@ public:
   Result operator()(const CoarrayRef &) const { return "coindexed reference"; }
 
   Result operator()(const semantics::Symbol &symbol) const {
-    if (semantics::IsNamedConstant(symbol)) {
+    const auto &ultimate{symbol.GetUltimate()};
+    if (semantics::IsNamedConstant(ultimate) || ultimate.owner().IsModule() ||
+        ultimate.owner().IsSubmodule()) {
       return std::nullopt;
-    } else if (scope_.IsDerivedType() && IsVariableName(symbol)) { // C750, C754
+    } else if (scope_.IsDerivedType() &&
+        IsVariableName(ultimate)) { // C750, C754
       return "derived type component or type parameter value not allowed to "
              "reference variable '"s +
-          symbol.name().ToString() + "'";
-    } else if (IsDummy(symbol)) {
-      if (symbol.attrs().test(semantics::Attr::OPTIONAL)) {
+          ultimate.name().ToString() + "'";
+    } else if (IsDummy(ultimate)) {
+      if (ultimate.attrs().test(semantics::Attr::OPTIONAL)) {
         return "reference to OPTIONAL dummy argument '"s +
-            symbol.name().ToString() + "'";
-      } else if (symbol.attrs().test(semantics::Attr::INTENT_OUT)) {
+            ultimate.name().ToString() + "'";
+      } else if (ultimate.attrs().test(semantics::Attr::INTENT_OUT)) {
         return "reference to INTENT(OUT) dummy argument '"s +
-            symbol.name().ToString() + "'";
-      } else if (symbol.has<semantics::ObjectEntityDetails>()) {
+            ultimate.name().ToString() + "'";
+      } else if (ultimate.has<semantics::ObjectEntityDetails>()) {
         return std::nullopt;
       } else {
         return "dummy procedure argument";
       }
-    } else if (symbol.has<semantics::UseDetails>() ||
-        symbol.has<semantics::HostAssocDetails>() ||
-        symbol.owner().kind() == semantics::Scope::Kind::Module) {
-      return std::nullopt;
     } else if (const auto *object{
-                   symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
+                   ultimate.detailsIf<semantics::ObjectEntityDetails>()}) {
       // TODO: what about EQUIVALENCE with data in COMMON?
       // TODO: does this work for blank COMMON?
       if (object->commonBlock()) {
@@ -289,11 +292,11 @@ public:
     }
     for (const semantics::Scope *s{&scope_}; !s->IsGlobal();) {
       s = &s->parent();
-      if (s == &symbol.owner()) {
+      if (s == &ultimate.owner()) {
         return std::nullopt;
       }
     }
-    return "reference to local entity '"s + symbol.name().ToString() + "'";
+    return "reference to local entity '"s + ultimate.name().ToString() + "'";
   }
 
   Result operator()(const Component &x) const {
@@ -307,10 +310,9 @@ public:
     return std::nullopt;
   }
 
-  template <int KIND>
-  Result operator()(const TypeParamInquiry<KIND> &inq) const {
+  Result operator()(const TypeParamInquiry &inq) const {
     if (scope_.IsDerivedType() && !IsConstantExpr(inq) &&
-        inq.parameter().owner() != scope_) { // C750, C754
+        inq.base() /* X%T, not local T */) { // C750, C754
       return "non-constant reference to a type parameter inquiry not "
              "allowed for derived type components or type parameter values";
     }

@@ -1,8 +1,17 @@
 /*
-* @@name:   ompd_types.h
+* @@name:   ompd-types.h
 */
-#ifndef __OPMD_TYPES_H
-#define __OPMD_TYPES_H
+
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef __OMPD_TYPES_H
+#define __OMPD_TYPES_H
 
 extern "C" {
 #include "omp-tools.h"

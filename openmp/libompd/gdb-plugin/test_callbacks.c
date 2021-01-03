@@ -1,3 +1,15 @@
+/*
+ * test_callbacks.c -- test ompd_initialize callback function table.
+ */
+
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 // test functions for callbacks that are passed onto ompd_initialize as a callback table
 // copy into ompdModule.c and insert in ompd_open if necessary
 static void testAlloc(int size);

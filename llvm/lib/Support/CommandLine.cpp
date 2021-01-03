@@ -832,7 +832,7 @@ void cl::TokenizeGNUCommandLine(StringRef Src, StringSaver &Saver,
     // Consume runs of whitespace.
     if (Token.empty()) {
       while (I != E && isWhitespace(Src[I])) {
-        // Mark the end of lines in response files
+        // Mark the end of lines in response files.
         if (MarkEOLs && Src[I] == '\n')
           NewArgv.push_back(nullptr);
         ++I;
@@ -869,6 +869,9 @@ void cl::TokenizeGNUCommandLine(StringRef Src, StringSaver &Saver,
     if (isWhitespace(C)) {
       if (!Token.empty())
         NewArgv.push_back(Saver.save(StringRef(Token)).data());
+      // Mark the end of lines in response files.
+      if (MarkEOLs && C == '\n')
+        NewArgv.push_back(nullptr);
       Token.clear();
       continue;
     }
@@ -880,9 +883,6 @@ void cl::TokenizeGNUCommandLine(StringRef Src, StringSaver &Saver,
   // Append the last token after hitting EOF with no whitespace.
   if (!Token.empty())
     NewArgv.push_back(Saver.save(StringRef(Token)).data());
-  // Mark the end of response files
-  if (MarkEOLs)
-    NewArgv.push_back(nullptr);
 }
 
 /// Backslashes are interpreted in a rather complicated way in the Windows-style
@@ -956,11 +956,11 @@ tokenizeWindowsCommandLineImpl(StringRef Src, StringSaver &Saver,
         ++I;
       StringRef NormalChars = Src.slice(Start, I);
       if (I >= E || isWhitespaceOrNull(Src[I])) {
-        if (I < E && Src[I] == '\n')
-          MarkEOL();
         // No special characters: slice out the substring and start the next
         // token. Copy the string if the caller asks us to.
         AddToken(AlwaysCopy ? Saver.save(NormalChars) : NormalChars);
+        if (I < E && Src[I] == '\n')
+          MarkEOL();
       } else if (Src[I] == '\"') {
         Token += NormalChars;
         State = QUOTED;
@@ -1251,6 +1251,22 @@ bool cl::ExpandResponseFiles(StringSaver &Saver, TokenizerCallback Tokenizer,
   return AllExpanded;
 }
 
+bool cl::expandResponseFiles(int Argc, const char *const *Argv,
+                             const char *EnvVar, StringSaver &Saver,
+                             SmallVectorImpl<const char *> &NewArgv) {
+  auto Tokenize = Triple(sys::getProcessTriple()).isOSWindows()
+                      ? cl::TokenizeWindowsCommandLine
+                      : cl::TokenizeGNUCommandLine;
+  // The environment variable specifies initial options.
+  if (EnvVar)
+    if (llvm::Optional<std::string> EnvValue = sys::Process::GetEnv(EnvVar))
+      Tokenize(*EnvValue, Saver, NewArgv, /*MarkEOLs=*/false);
+
+  // Command line options can override the environment variable.
+  NewArgv.append(Argv + 1, Argv + Argc);
+  return ExpandResponseFiles(Saver, Tokenize, NewArgv);
+}
+
 bool cl::readConfigFile(StringRef CfgFile, StringSaver &Saver,
                         SmallVectorImpl<const char *> &Argv) {
   SmallString<128> AbsPath;
@@ -1269,36 +1285,6 @@ bool cl::readConfigFile(StringRef CfgFile, StringSaver &Saver,
   }
   return ExpandResponseFiles(Saver, cl::tokenizeConfigFile, Argv,
                              /*MarkEOLs*/ false, /*RelativeNames*/ true);
-}
-
-/// ParseEnvironmentOptions - An alternative entry point to the
-/// CommandLine library, which allows you to read the program's name
-/// from the caller (as PROGNAME) and its command-line arguments from
-/// an environment variable (whose name is given in ENVVAR).
-///
-void cl::ParseEnvironmentOptions(const char *progName, const char *envVar,
-                                 const char *Overview) {
-  // Check args.
-  assert(progName && "Program name not specified");
-  assert(envVar && "Environment variable name missing");
-
-  // Get the environment variable they want us to parse options out of.
-  llvm::Optional<std::string> envValue = sys::Process::GetEnv(StringRef(envVar));
-  if (!envValue)
-    return;
-
-  // Get program's "name", which we wouldn't know without the caller
-  // telling us.
-  SmallVector<const char *, 20> newArgv;
-  BumpPtrAllocator A;
-  StringSaver Saver(A);
-  newArgv.push_back(Saver.save(progName).data());
-
-  // Parse the value of the environment variable into a "command line"
-  // and hand it off to ParseCommandLineOptions().
-  TokenizeGNUCommandLine(*envValue, Saver, newArgv);
-  int newArgc = static_cast<int>(newArgv.size());
-  ParseCommandLineOptions(newArgc, &newArgv[0], StringRef(Overview));
 }
 
 bool cl::ParseCommandLineOptions(int argc, const char *const *argv,

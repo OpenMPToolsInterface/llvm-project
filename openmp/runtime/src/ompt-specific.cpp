@@ -27,7 +27,7 @@
 #define THREAD_LOCAL __thread
 #endif
 
-#define OMPT_WEAK_ATTRIBUTE KMP_WEAK_ATTRIBUTE
+#define OMPT_WEAK_ATTRIBUTE KMP_WEAK_ATTRIBUTE_INTERNAL
 
 //******************************************************************************
 // macros
@@ -289,7 +289,7 @@ void __ompt_lw_taskteam_link(ompt_lw_taskteam_t *lwt, kmp_info_t *thr,
     link_lwt->parent = my_parent;
     thr->th.th_team->t.ompt_serialized_team_info = link_lwt;
 
-#ifdef OMPD_SUPPORT
+#if OMPD_SUPPORT
     if (ompd_state & OMPD_ENABLE_BP) {
       ompd_bp_parallel_begin ();
     }
@@ -303,7 +303,7 @@ void __ompt_lw_taskteam_link(ompt_lw_taskteam_t *lwt, kmp_info_t *thr,
     // this is the first serialized team, so we just store the values in the
     // team and drop the taskteam-object
     *OMPT_CUR_TEAM_INFO(thr) = lwt->ompt_team_info;
-#ifdef OMPD_SUPPORT
+#if OMPD_SUPPORT
     if (ompd_state & OMPD_ENABLE_BP) {
       ompd_bp_parallel_begin ();
     }
@@ -319,7 +319,7 @@ void __ompt_lw_taskteam_unlink(kmp_info_t *thr) {
     lwtask->ompt_task_info = *OMPT_CUR_TASK_INFO(thr);
     *OMPT_CUR_TASK_INFO(thr) = tmp_task;
 
-#ifdef OMPD_SUPPORT
+#if OMPD_SUPPORT
     if (ompd_state & OMPD_ENABLE_BP) {
       ompd_bp_parallel_end ();
     }

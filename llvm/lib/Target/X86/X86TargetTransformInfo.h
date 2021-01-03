@@ -62,7 +62,6 @@ class X86TTIImpl : public BasicTTIImplBase<X86TTIImpl> {
       X86::FeatureLZCNTFalseDeps,
       X86::FeatureBranchFusion,
       X86::FeatureMacroFusion,
-      X86::FeatureMergeToThreeWayBranch,
       X86::FeaturePadShortFunctions,
       X86::FeaturePOPCNTFalseDeps,
       X86::FeatureSSEUnalignedMem,
@@ -131,9 +130,10 @@ public:
   int getShuffleCost(TTI::ShuffleKind Kind, VectorType *Tp, int Index,
                      VectorType *SubTp);
   int getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src,
-                       TTI::TargetCostKind CostKind,
+                       TTI::CastContextHint CCH, TTI::TargetCostKind CostKind,
                        const Instruction *I = nullptr);
   int getCmpSelInstrCost(unsigned Opcode, Type *ValTy, Type *CondTy,
+                         CmpInst::Predicate VecPred,
                          TTI::TargetCostKind CostKind,
                          const Instruction *I = nullptr);
   int getVectorInstrCost(unsigned Opcode, Type *Val, unsigned Index);
@@ -204,8 +204,9 @@ public:
 
   unsigned getCFInstrCost(unsigned Opcode, TTI::TargetCostKind CostKind);
 
-  int getIntImmCostInst(unsigned Opcode, unsigned Idx, const APInt &Imm, Type *Ty,
-                        TTI::TargetCostKind CostKind);
+  int getIntImmCostInst(unsigned Opcode, unsigned Idx, const APInt &Imm,
+                        Type *Ty, TTI::TargetCostKind CostKind,
+                        Instruction *Inst = nullptr);
   int getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
                           Type *Ty, TTI::TargetCostKind CostKind);
   bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,

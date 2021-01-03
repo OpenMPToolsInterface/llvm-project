@@ -96,8 +96,8 @@ STATISTIC(NumOmittedReadsFromConstantGlobals,
 STATISTIC(NumOmittedReadsFromVtable, "Number of vtable reads");
 STATISTIC(NumOmittedNonCaptured, "Number of accesses ignored due to capturing");
 
-static const char *const kTsanModuleCtorName = "tsan.module_ctor";
-static const char *const kTsanInitName = "__tsan_init";
+const char kTsanModuleCtorName[] = "tsan.module_ctor";
+const char kTsanInitName[] = "__tsan_init";
 
 namespace {
 
@@ -478,7 +478,7 @@ void ThreadSanitizer::chooseInstructionsToInstrument(
       }
     }
 
-    if (isa<AllocaInst>(GetUnderlyingObject(Addr, DL)) &&
+    if (isa<AllocaInst>(getUnderlyingObject(Addr)) &&
         !PointerMayBeCaptured(Addr, true, true)) {
       // The variable is addressable but not captured, so it cannot be
       // referenced from a different thread and participate in a data race

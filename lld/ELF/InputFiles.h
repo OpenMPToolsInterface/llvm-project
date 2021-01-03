@@ -92,9 +92,11 @@ public:
     return symbols;
   }
 
-  // Filename of .a which contained this file. If this file was
-  // not in an archive file, it is the empty string. We use this
-  // string for creating error messages.
+  // Get filename to use for linker script processing.
+  StringRef getNameForScript() const;
+
+  // If not empty, this stores the name of the archive containing this file.
+  // We use this string for creating error messages.
   std::string archiveName;
 
   // If this is an architecture-specific file, the following members
@@ -147,6 +149,9 @@ protected:
 
 private:
   const Kind fileKind;
+
+  // Cache for getNameForScript().
+  mutable std::string nameForScriptCache;
 };
 
 class ELFFileBase : public InputFile {
