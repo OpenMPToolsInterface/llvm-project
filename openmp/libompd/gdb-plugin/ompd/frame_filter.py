@@ -32,7 +32,7 @@ class OmpdFrameDecorator(FrameDecorator):
 		if self.curr_task_handle is None:
 			return name
 		
-		icv_value = ompdModule.call_ompd_get_icv_from_scope(self.curr_task_handle, ompd.icv_map['ompd-implicit-var'][1], ompd.icv_map['ompd-implicit-var'][0])
+		icv_value = ompdModule.call_ompd_get_icv_from_scope(self.curr_task_handle, ompd.icv_map['implicit-task-var'][1], ompd.icv_map['implicit-task-var'][0])
 		if icv_value == 0:
 			name = '@thread %i: %s "#pragma omp task"' % (gdb.selected_thread().num, name)
 		elif icv_value == 1:

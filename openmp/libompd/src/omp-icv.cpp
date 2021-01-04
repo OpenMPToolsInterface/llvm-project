@@ -26,17 +26,18 @@
     macro (affinity_format_var, "affinity-format-var", ompd_scope_address_space, 0)      \
     macro (default_device_var, "default-device-var", ompd_scope_thread, 0)     \
     macro (tool_var, "tool-var", ompd_scope_address_space, 0)                  \
-    macro (tool_libraries_var, "tool-libraries-var", ompd_scope_address_space, 0)                  \
+    macro (tool_libraries_var, "tool-libraries-var", ompd_scope_address_space, 0)        \
+    macro (tool_verbose_init_var, "tool-verbose-init-var", ompd_scope_address_space, 0)  \
     macro (levels_var, "levels-var", ompd_scope_parallel, 1)                   \
     macro (active_levels_var, "active-levels-var", ompd_scope_parallel, 0)     \
     macro (thread_limit_var, "thread-limit-var", ompd_scope_task, 0)           \
     macro (max_active_levels_var, "max-active-levels-var", ompd_scope_task, 0) \
     macro (bind_var, "bind-var", ompd_scope_task, 0)                           \
-    macro (num_procs_var, "ompd-num-procs-var", ompd_scope_address_space, 0)   \
-    macro (thread_num_var, "ompd-thread-num-var", ompd_scope_thread, 1)        \
-    macro (final_var, "ompd-final-var", ompd_scope_task, 0)                    \
-    macro (implicit_var, "ompd-implicit-var", ompd_scope_task, 0)              \
-    macro (team_size_var, "ompd-team-size-var", ompd_scope_parallel, 1)        \
+    macro (num_procs_var, "num-procs-var", ompd_scope_address_space, 0)        \
+    macro (thread_num_var, "thread-num-var", ompd_scope_thread, 1)             \
+    macro (final_var, "final-task-var", ompd_scope_task, 0)                    \
+    macro (implicit_var, "implicit-task-var", ompd_scope_task, 0)              \
+    macro (team_size_var, "team-size-var", ompd_scope_parallel, 1)             \
 
 void __ompd_init_icvs(const ompd_callbacks_t *table) {
   callbacks = table;
@@ -524,6 +525,27 @@ static ompd_rc_t ompd_get_tool(
   return ret;
 }
 
+static ompd_rc_t ompd_get_tool_verbose_init(
+    ompd_address_space_handle_t *addr_handle, /* IN: address space handle*/
+    const char **tool_verbose_init_string     /* OUT: tool verbose init string */
+    ) {
+  ompd_address_space_context_t *context = addr_handle->context;
+  if (!context)
+    return ompd_rc_stale_handle;
+
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
+  ompd_rc_t ret;
+  ret = TValue(context, "__kmp_tool_verbose_init")
+            .cast("char", 1)
+            .getString(tool_verbose_init_string);
+  if (ret == ompd_rc_unsupported) {
+    ret = create_empty_string(tool_verbose_init_string);
+  }
+  return ret;
+}
+
 static ompd_rc_t ompd_get_level(
     ompd_parallel_handle_t *parallel_handle, /* IN: OpenMP parallel handle */
     ompd_word_t *val                         /* OUT: nesting level */
@@ -684,9 +706,9 @@ ompd_in_final(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
 
   ompd_rc_t ret = TValue(context, task_handle->th)
                       .cast("kmp_taskdata_t") // td
-                      .access("td_flags")     // td->td_icvs
+                      .access("td_flags")     // td->td_flags
                       .cast("kmp_tasking_flags_t")
-                      .check("final", val); // td->td_icvs.max_active_levels
+                      .check("final", val); // td->td_flags.tasktype
 
   return ret;
 }
@@ -1029,6 +1051,8 @@ ompd_rc_t ompd_get_icv_from_scope(void *handle, ompd_scope_t scope,
         return ompd_get_default_device((ompd_thread_handle_t *)handle, icv_value);
       case ompd_icv_tool_var:
         return ompd_get_tool((ompd_address_space_handle_t *)handle, icv_value);
+      case ompd_icv_tool_verbose_init_var:
+        return ompd_rc_incompatible;
       case ompd_icv_levels_var:
         return ompd_get_level((ompd_parallel_handle_t *)handle, icv_value);
       case ompd_icv_active_levels_var:
@@ -1109,6 +1133,9 @@ ompd_get_icv_string_from_scope(void *handle, ompd_scope_t scope,
              icv_string);
       case ompd_icv_tool_libraries_var:
         return ompd_get_tool_libraries((ompd_address_space_handle_t *)handle,
+             icv_string);
+      case ompd_icv_tool_verbose_init_var:
+        return ompd_get_tool_verbose_init((ompd_address_space_handle_t *)handle,
              icv_string);
       default:
         return ompd_rc_unsupported;

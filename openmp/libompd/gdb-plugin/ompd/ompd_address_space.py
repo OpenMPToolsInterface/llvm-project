@@ -106,9 +106,9 @@ class ompd_address_space(object):
 				print('OMPT-OMPD mismatch: ompt_wait_id (%d) does not match OMPD wait id (%d)!' % (ompt_wait_id, ompd_wait_id))
 		
 		# compare thread id
-		if 'omp_thread_num' in field_names and 'ompd-thread-num-var' in self.icv_map:
+		if 'omp_thread_num' in field_names and 'thread-num-var' in self.icv_map:
 			ompt_thread_num = thread_data['omp_thread_num']
-			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.thread_handle, self.icv_map['ompd-thread-num-var'][1], self.icv_map['ompd-thread-num-var'][0])
+			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.thread_handle, self.icv_map['thread-num-var'][1], self.icv_map['thread-num-var'][0])
 			if ompt_thread_num != icv_value:
 				print('OMPT-OMPD mismatch: omp_thread_num (%d) does not match OMPD thread num according to ICVs (%d)!' % (ompt_thread_num, icv_value))
 		
@@ -120,9 +120,9 @@ class ompd_address_space(object):
 				print('OMPT-OMPD mismatch: value of ompt_thread_data (%d) does not match that of OMPD data union (%d)!' % (ompt_thread_data, ompd_value))
 		
 		# compare number of threads
-		if 'omp_num_threads' in field_names and 'ompd-team-size-var' in self.icv_map:
+		if 'omp_num_threads' in field_names and 'team-size-var' in self.icv_map:
 			ompt_num_threads = thread_data['omp_num_threads']
-			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.get_current_parallel_handle(), self.icv_map['ompd-team-size-var'][1], self.icv_map['ompd-team-size-var'][0])
+			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.get_current_parallel_handle(), self.icv_map['team-size-var'][1], self.icv_map['team-size-var'][0])
 			if ompt_num_threads != icv_value:
 				print('OMPT-OMPD mismatch: omp_num_threads (%d) does not match OMPD num threads according to ICVs (%d)!' % (ompt_num_threads, icv_value))
 		
@@ -172,10 +172,10 @@ class ompd_address_space(object):
 				print('OMPT-OMPD mismatch: ompt_parallel (%d) does not match OMPD parallel according to ICVs (%d)!' % (ompt_parallel, icv_value))
 		
 		# compare omp_final
-		if 'omp_final' in field_names and 'ompd-final-var' in self.icv_map:
+		if 'omp_final' in field_names and 'final-task-var' in self.icv_map:
 			ompt_final = thread_data['omp_final']
 			current_task_handle = curr_thread.get_current_task_handle()
-			icv_value = ompdModule.call_ompd_get_icv_from_scope(current_task_handle, self.icv_map['ompd-final-var'][1], self.icv_map['ompd-final-var'][0])
+			icv_value = ompdModule.call_ompd_get_icv_from_scope(current_task_handle, self.icv_map['final-task-var'][1], self.icv_map['final-task-var'][0])
 			if icv_value != ompt_final:
 				print('OMPT-OMPD mismatch: omp_final (%d) does not match OMPD final according to ICVs (%d)!' % (ompt_final, icv_value))
 		

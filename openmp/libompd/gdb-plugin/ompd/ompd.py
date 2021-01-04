@@ -136,8 +136,8 @@ class ompd_parallel_region(gdb.Command):
 			if nest_level == 0:
 				break
 			team_size = ompdModule.call_ompd_get_icv_from_scope(curr_parallel_handle, \
-				    addr_space.icv_map['ompd-team-size-var'][1], \
-				    addr_space.icv_map['ompd-team-size-var'][0])
+				    addr_space.icv_map['team-size-var'][1], \
+				    addr_space.icv_map['team-size-var'][0])
 			print ("")
 			print ("Parallel Region: Nesting Level %d: Team Size: %d" % (nest_level, team_size))
 			print ("================================================")
@@ -193,7 +193,8 @@ class ompd_icvs(gdb.Command):
 					else:
 						print('%-31s %-26s %d' % (icv_name, ompd_scope_map[scope], icv_value))
 
-				elif (icv_name == "affinity-format-var" or icv_name == "tool-libraries-var" ):
+				elif (icv_name == "affinity-format-var" or \
+                                         icv_name == "tool-libraries-var" or icv_name == "tool-verbose-init-var"):
 					icv_string = ompdModule.call_ompd_get_icv_string_from_scope( \
 						     handle, scope, addr_space.icv_map[icv_name][0])
 					print('%-31s %-26s %s' % (icv_name, ompd_scope_map[scope], icv_string))

@@ -58,15 +58,15 @@ int main (void)
 
 // CHECK: levels-var                      parallel                   2
 // CHECK: active-levels-var               parallel                   2
-// CHECK: ompd-team-size-var              parallel                   5
+// CHECK: team-size-var                   parallel                   5
 
 // CHECK: levels-var                      parallel                   2
 // CHECK: active-levels-var               parallel                   1
-// CHECK: ompd-team-size-var              parallel                   1
+// CHECK: team-size-var                   parallel                   1
 
 // CHECK: levels-var                      parallel                   1
 // CHECK: active-levels-var               parallel                   1
-// CHECK: ompd-team-size-var              parallel                   9
+// CHECK: team-size-var                   parallel                   9
 
 // CHECK-NOT: Python Exception
 // CHECK-NOT: The program is not being run.
