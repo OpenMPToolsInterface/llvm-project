@@ -15,6 +15,10 @@
 #include "ompd-private.h"
 #include "TargetValue.h"
 
+/* The ICVs ompd-final-var and ompd-implicit-var below are for backward
+ * compatibility with 5.0.
+ */
+
 #define FOREACH_OMPD_ICV(macro)                                                \
     macro (dyn_var, "dyn-var", ompd_scope_thread, 0)                           \
     macro (stacksize_var, "stacksize-var", ompd_scope_address_space, 0)        \
@@ -34,10 +38,18 @@
     macro (max_active_levels_var, "max-active-levels-var", ompd_scope_task, 0) \
     macro (bind_var, "bind-var", ompd_scope_task, 0)                           \
     macro (num_procs_var, "num-procs-var", ompd_scope_address_space, 0)        \
+    macro (ompd_num_procs_var, "ompd-num-procs-var", ompd_scope_address_space, 0)        \
     macro (thread_num_var, "thread-num-var", ompd_scope_thread, 1)             \
+    macro (ompd_thread_num_var, "ompd-thread-num-var", ompd_scope_thread, 1)   \
     macro (final_var, "final-task-var", ompd_scope_task, 0)                    \
+    macro (ompd_final_var, "ompd-final-var", ompd_scope_task, 0)               \
+    macro (ompd_final_task_var, "ompd-final-task-var", ompd_scope_task, 0)     \
     macro (implicit_var, "implicit-task-var", ompd_scope_task, 0)              \
+    macro (ompd_implicit_var, "ompd-implicit-var", ompd_scope_task, 0)         \
+    macro (ompd_implicit_task_var, "ompd-implicit-task-var", ompd_scope_task, 0)         \
     macro (team_size_var, "team-size-var", ompd_scope_parallel, 1)             \
+    macro (ompd_team_size_var, "ompd-team-size-var", ompd_scope_parallel, 1)   \
+
 
 void __ompd_init_icvs(const ompd_callbacks_t *table) {
   callbacks = table;
@@ -1085,14 +1097,21 @@ ompd_rc_t ompd_get_icv_from_scope(void *handle, ompd_scope_t scope,
       case ompd_icv_bind_var:
         return ompd_get_proc_bind((ompd_task_handle_t*)handle, icv_value);
       case ompd_icv_num_procs_var:
+      case ompd_icv_ompd_num_procs_var:
         return ompd_get_num_procs((ompd_address_space_handle_t*)handle, icv_value);
       case ompd_icv_thread_num_var:
+      case ompd_icv_ompd_thread_num_var:
         return ompd_get_thread_num((ompd_thread_handle_t*)handle, icv_value);
       case ompd_icv_final_var:
+      case ompd_icv_ompd_final_var:
+      case ompd_icv_ompd_final_task_var:
         return ompd_in_final((ompd_task_handle_t*)handle, icv_value);
       case ompd_icv_implicit_var:
+      case ompd_icv_ompd_implicit_var:
+      case ompd_icv_ompd_implicit_task_var:
         return ompd_is_implicit((ompd_task_handle_t*)handle, icv_value);
       case ompd_icv_team_size_var:
+      case ompd_icv_ompd_team_size_var:
         return ompd_get_num_threads((ompd_parallel_handle_t*)handle, icv_value);
       default:
         return ompd_rc_unsupported;
