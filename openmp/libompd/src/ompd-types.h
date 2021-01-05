@@ -17,7 +17,7 @@ extern "C" {
 #include "omp-tools.h"
 }
 
-#define OMPD_TYPES_VERSION   20170927 /* YYYYMMDD Format */
+#define OMPD_TYPES_VERSION   20180906 /* YYYYMMDD Format */
 
 /* Kinds of device threads  */
 #define OMPD_THREAD_ID_PTHREAD      ((ompd_thread_id_t)0)
