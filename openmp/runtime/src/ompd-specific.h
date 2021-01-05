@@ -28,6 +28,7 @@ extern "C" {
 #endif
 extern char *ompd_env_block;
 extern ompd_size_t ompd_env_block_size;
+extern char *__kmp_tool_verbose_init;
 #ifdef  __cplusplus
 } /* extern "C" */
 #endif
@@ -146,6 +147,7 @@ OMPD_SIZEOF(__kmp_max_task_priority) \
 OMPD_SIZEOF(__kmp_display_affinity) \
 OMPD_SIZEOF(__kmp_affinity_format) \
 OMPD_SIZEOF(__kmp_tool_libraries) \
+OMPD_SIZEOF(__kmp_tool_verbose_init) \
 OMPD_SIZEOF(__kmp_tool) \
 OMPD_SIZEOF(ompd_state) \
 OMPD_SIZEOF(kmp_nested_nthreads_t) \
