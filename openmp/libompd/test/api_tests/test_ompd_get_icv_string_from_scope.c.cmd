@@ -1,4 +1,4 @@
 ompd init
-b test_ompd_get_icv_string_from_scope.c:13
+b test_ompd_get_icv_string_from_scope.c:11
 c
 ompdtestapi ompd_get_icv_string_from_scope

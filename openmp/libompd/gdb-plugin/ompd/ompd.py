@@ -315,6 +315,7 @@ class ompdtestapi (gdb.Command):
 		elif arg == "ompd_finalize":
 			ompdModule.test_ompd_finalize()
 		elif arg == "ompd_process_initialize":
+			ompdModule.call_ompd_initialize()
 			ompdModule.test_ompd_process_initialize()
 		elif arg == "ompd_device_initialize":
 			ompdModule.test_ompd_device_initialize()
