@@ -542,7 +542,7 @@ ompd_rc_t _read (
 		}
 		Py_ssize_t retSize = PyByteArray_Size(retArray);
 		const char* strBuf = PyByteArray_AsString(retArray);
-		if(retSize != nbytes) {
+		if((unsigned int)retSize != nbytes) {
 			return ompd_rc_error;
 		}
 		memcpy(buffer, strBuf, nbytes);
@@ -574,7 +574,7 @@ ompd_rc_t _read_string (
 	}
 	Py_ssize_t retSize;
 	const char* strbuffer = PyUnicode_AsUTF8AndSize(retString, &retSize);
-	if(retSize >= nbytes) {
+	if((unsigned int)retSize >= nbytes) {
 		retVal = ompd_rc_incomplete;
 	}
  	strncpy(buffer, strbuffer, nbytes);
