@@ -694,7 +694,7 @@ static PyObject* call_ompd_initialize(PyObject* self, PyObject* noargs)
 		};
 	
 	ompd_rc_t (*my_ompd_init)(ompd_word_t version, ompd_callbacks_t*) = dlsym(ompd_library, "ompd_initialize");
-	ompd_rc_t returnInit = my_ompd_init(42, &table);
+	ompd_rc_t returnInit = my_ompd_init(201811, &table);
 	if(returnInit != ompd_rc_ok) {
 		_printf("An error occurred when calling ompd_initialize! Error code: %d", returnInit);
 	}
@@ -961,7 +961,7 @@ static PyObject* call_ompd_get_icv_from_scope(PyObject* self, PyObject* args) {
 	ompd_rc_t retVal = ompd_get_icv_from_scope(addrSpaceHandle, scope, icvId, &icvValue);
 	
 	if(retVal != ompd_rc_ok) {
-                if (retVal != ompd_rc_incompatible) {
+                if (retVal != ompd_rc_incomplete) {
 		    _printf("An error occurred when calling ompd_get_icv_from_scope(%i, %i): Error code: %d", scope, icvId, retVal);
                 }
 		return Py_None;
