@@ -169,7 +169,7 @@ void collectTaskData(omp_t_data_t * data)
 	data->omp_parallel = omp_in_parallel();
 	data->omp_final = omp_in_final();
 	data->omp_dynamic = omp_get_dynamic();
-	data->omp_nested = omp_get_nested();
+	data->omp_nested = omp_get_max_active_levels();
 	data->omp_max_active_levels = omp_get_max_active_levels();
 	omp_get_schedule(&(data->omp_kind), &(data->omp_modifier));
 	data->omp_proc_bind = omp_get_proc_bind();
