@@ -78,9 +78,16 @@ void ompd_init()
   OMPD_FOREACH_SIZEOF(ompd_init_sizeof)
 #undef ompd_init_sizeof
 
-  volatile static const char * ompd_my_dll_locations[2] = {"libompd.so",NULL};
-  
-
+  // Find the location of libomp.so thru dladdr and replace the libomp with libompd to get
+  // the full path of libompd
+  Dl_info dl_info;
+  int ret = dladdr((void*)ompd_init, &dl_info);
+  if (!ret) {
+	fprintf(stderr, "%s\n", dlerror());
+  }
+  char* libname = (char*)malloc (strlen(dl_info.dli_fname)+ 2/*for 'd' and '\0'*/);
+  strcpy (libname, dl_info.dli_fname);
+  memcpy(strrchr(libname, '/'), "/libompd.so\0",12);
 
   const char *ompd_env_var = getenv("OMP_DEBUG");
   if (ompd_env_var && !strcmp(ompd_env_var, "enabled"))
@@ -93,9 +100,10 @@ void ompd_init()
     
   ompd_initialized = 1;
 //  ompd_dll_locations=ompd_my_dll_locations;
-  ompd_dll_locations = (volatile const char * *)malloc(2*sizeof(const char *));
-  ompd_dll_locations[0] = ompd_my_dll_locations[0];
-  ompd_dll_locations[1] = ompd_my_dll_locations[1];
+  ompd_dll_locations = (volatile const char * *)malloc(3*sizeof(const char *));
+  ompd_dll_locations[0] = "libompd.so";
+  ompd_dll_locations[1] = libname;
+  ompd_dll_locations[2] = NULL;
   ompd_dll_locations_valid ();
 
 }
