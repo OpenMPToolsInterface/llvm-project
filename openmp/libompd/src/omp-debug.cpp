@@ -110,9 +110,17 @@ ompd_rc_t ompd_get_omp_version_string(
     const char **string) {
   if (!address_space)
     return ompd_rc_bad_input;
-  static const char *omp_version = "";
+  ompd_address_space_context_t *context = address_space->context;
+  ompd_word_t ver;
+  ompd_rc_t ret;
+  static char omp_version[10];
+
+  ret = TValue(context, "__kmp_openmp_version")
+            .castBase(ompd_type_int)
+            .getValue(ver);
+  sprintf (omp_version, "%ld", ver);
   *string = omp_version;
-  return ompd_rc_ok;
+  return ret;
 }
 
 ompd_rc_t ompd_rel_address_space_handle(
