@@ -174,6 +174,9 @@ function(add_openmp_testsuite target comment)
     # Register the testsuites and depends for the check-openmp rule.
     set_property(GLOBAL APPEND PROPERTY OPENMP_LIT_TESTSUITES ${ARG_UNPARSED_ARGUMENTS})
     set_property(GLOBAL APPEND PROPERTY OPENMP_LIT_DEPENDS ${ARG_DEPENDS})
+  else ()
+    set_property(GLOBAL APPEND PROPERTY OPENMP_LIT_TESTSUITES_EXCLUDED ${ARG_UNPARSED_ARGUMENTS})
+    set_property(GLOBAL APPEND PROPERTY OPENMP_LIT_DEPENDS_EXCLUDED ${ARG_DEPENDS})
   endif()
 
   if (${OPENMP_STANDALONE_BUILD})
@@ -207,7 +210,10 @@ endfunction()
 function(construct_check_openmp_target)
   get_property(OPENMP_LIT_TESTSUITES GLOBAL PROPERTY OPENMP_LIT_TESTSUITES)
   get_property(OPENMP_LIT_DEPENDS GLOBAL PROPERTY OPENMP_LIT_DEPENDS)
+  get_property(OPENMP_LIT_TESTSUITES_EXCLUDED GLOBAL PROPERTY OPENMP_LIT_TESTSUITES_EXCLUDED)
+  get_property(OPENMP_LIT_DEPENDS_EXCLUDED GLOBAL PROPERTY OPENMP_LIT_DEPENDS_EXCLUDED)
 
   # We already added the testsuites themselves, no need to do that again.
   add_openmp_testsuite(check-openmp "Running OpenMP tests" ${OPENMP_LIT_TESTSUITES} EXCLUDE_FROM_CHECK_ALL DEPENDS ${OPENMP_LIT_DEPENDS})
+  add_openmp_testsuite(check-openmp-all "Running all OpenMP tests" ${OPENMP_LIT_TESTSUITES} ${OPENMP_LIT_TESTSUITES_EXCLUDED} EXCLUDE_FROM_CHECK_ALL DEPENDS ${OPENMP_LIT_DEPENDS} ${OPENMP_LIT_DEPENDS_EXCLUDED})
 endfunction()
