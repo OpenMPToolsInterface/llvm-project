@@ -979,7 +979,7 @@ ompd_get_thread_handle(ompd_address_space_handle_t
   int tId;
 
   if (kind == OMPD_THREAD_ID_CUDALOGICAL) {
-    ompd_cudathread_coord_t *p = (ompd_cudathread_coord_t *)thread_id;
+    const ompd_cudathread_coord_t *p = (const ompd_cudathread_coord_t *)thread_id;
 
     // omptarget_nvptx_threadPrivateContext->topTaskDescr[p->threadIdx.x]
     TValue th = TValue(context, tcontext,

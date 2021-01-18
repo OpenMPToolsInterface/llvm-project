@@ -109,7 +109,7 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy((char*)*next_icv_name, ompd_icv_string_values[*next_id]);
+  std::strcpy(const_cast<char*>(*next_icv_name), ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
@@ -149,7 +149,7 @@ ompd_rc_t ompd_enumerate_icvs(ompd_address_space_handle_t *handle,
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy((char*)*next_icv_name, ompd_icv_string_values[*next_id]);
+  std::strcpy(const_cast<char*>(*next_icv_name), ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
