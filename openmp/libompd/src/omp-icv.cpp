@@ -92,6 +92,7 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
                                           ompd_scope_t *next_scope,
                                           int *more) {
   int next_possible_icv = current;
+  char *new_icv_name;
   ompd_rc_t ret;
   do {
     next_possible_icv++;
@@ -105,11 +106,12 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
 
   ret = callbacks->alloc_memory(
       std::strlen(ompd_icv_string_values[*next_id]) + 1,
-      (void**) next_icv_name);
+      (void**) &new_icv_name);
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy(const_cast<char*>(*next_icv_name), ompd_icv_string_values[*next_id]);
+  *next_icv_name = new_icv_name;
+  std::strcpy(new_icv_name, ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
