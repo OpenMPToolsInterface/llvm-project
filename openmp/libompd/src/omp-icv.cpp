@@ -805,6 +805,14 @@ ompd_get_run_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle
   if (ret != ompd_rc_ok) {
     return ret;
   }
+  int chunk = 0;
+  ret = sched
+          .access("chunk") // td->td_icvs.sched.chunk
+          .castBase()
+          .getValue(chunk);
+  if (ret != ompd_rc_ok) {
+    return ret;
+  }
   char *run_sched_var_string;
   ret = callbacks->alloc_memory(100, (void **) &run_sched_var_string);
   if (ret != ompd_rc_ok) {
@@ -854,16 +862,12 @@ ompd_get_run_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle
       return ret;
   }
 
-  int chunk = 0;
-  if (static_unchunked == false){
-    ret = sched
-          .access("chunk") // td->td_icvs.sched.chunk
-          .castBase()
-          .getValue(chunk);
-    if (ret != ompd_rc_ok) {
-      return ret;
-    }
+  if (static_unchunked == true){
+    // To be in sync with what OMPT returns.
+    // Chunk was not set. Shown with a zero value.
+    chunk = 0;
   }
+
   char temp_str[16];
   sprintf(temp_str, ",%d", chunk);
   strcat (run_sched_var_string, temp_str);
@@ -940,7 +944,7 @@ ompd_get_proc_bind(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle */
      ompd_rc_incomplete is returned. The tool can check the return value and
      can choose to invoke ompd_get_icv_string_from_scope() if needed. */
   if (current_nesting_level < used - 1) {
-    return ompd_rc_incomplete
+    return ompd_rc_incomplete;
   }
   return ompd_rc_ok;
 }
