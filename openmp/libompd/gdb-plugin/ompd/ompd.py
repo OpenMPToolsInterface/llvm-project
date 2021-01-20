@@ -193,7 +193,7 @@ class ompd_icvs(gdb.Command):
 					else:
 						print('%-31s %-26s %d' % (icv_name, ompd_scope_map[scope], icv_value))
 
-				elif (icv_name == "affinity-format-var" or \
+				elif (icv_name == "affinity-format-var" or icv_name == "run-sched-var" or \
                                          icv_name == "tool-libraries-var" or icv_name == "tool-verbose-init-var"):
 					icv_string = ompdModule.call_ompd_get_icv_string_from_scope( \
 						     handle, scope, addr_space.icv_map[icv_name][0])
