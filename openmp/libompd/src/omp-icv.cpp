@@ -95,6 +95,7 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
                                           ompd_scope_t *next_scope,
                                           int *more) {
   int next_possible_icv = current;
+  char *new_icv_name;
   ompd_rc_t ret;
   do {
     next_possible_icv++;
@@ -108,11 +109,12 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
 
   ret = callbacks->alloc_memory(
       std::strlen(ompd_icv_string_values[*next_id]) + 1,
-      (void**) next_icv_name);
+      (void**) &new_icv_name);
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy((char*)*next_icv_name, ompd_icv_string_values[*next_id]);
+  *next_icv_name = new_icv_name;
+  std::strcpy(new_icv_name, ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
@@ -136,6 +138,9 @@ ompd_rc_t ompd_enumerate_icvs(ompd_address_space_handle_t *handle,
   if (!handle) {
     return ompd_rc_stale_handle;
   }
+  if (!next_id || !next_icv_name || !next_scope || !more) {
+	return ompd_rc_bad_input;
+  }
   if (handle->kind == OMPD_DEVICE_KIND_CUDA) {
     return ompd_enumerate_icvs_cuda(current, next_id, next_icv_name,
                                     next_scope, more);
@@ -152,7 +157,7 @@ ompd_rc_t ompd_enumerate_icvs(ompd_address_space_handle_t *handle,
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy((char*)*next_icv_name, ompd_icv_string_values[*next_id]);
+  std::strcpy(const_cast<char*>(*next_icv_name), ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
@@ -370,10 +375,10 @@ static ompd_rc_t ompd_get_nthreads(
   *nthreads_var_val = nproc;
   /* If the nthreads-var is a list with more than one element, then the value of
      this ICV cannot be represented by an integer type. In this case,
-     ompd_rc_incompatible is returned. The tool can check the return value and
+     ompd_rc_incomplete is returned. The tool can check the return value and
      can choose to invoke ompd_get_icv_string_from_scope() if needed. */
   if (current_nesting_level < used - 1) {
-    return ompd_rc_incompatible;
+    return ompd_rc_incomplete;
   }
   return ompd_rc_ok;
 }
@@ -932,10 +937,10 @@ ompd_get_proc_bind(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle */
   *bind = proc_bind;
   /* If bind-var is a list with more than one element, then the value of
      this ICV cannot be represented by an integer type. In this case,
-     ompd_rc_incompatible is returned. The tool can check the return value and
+     ompd_rc_incomplete is returned. The tool can check the return value and
      can choose to invoke ompd_get_icv_string_from_scope() if needed. */
   if (current_nesting_level < used - 1) {
-    return ompd_rc_incompatible;
+    return ompd_rc_incomplete
   }
   return ompd_rc_ok;
 }
@@ -1036,7 +1041,7 @@ ompd_is_implicit(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   return ret;
 } 
 
-static ompd_rc_t
+ompd_rc_t
 ompd_get_num_threads(ompd_parallel_handle_t
                         *parallel_handle, /* IN: OpenMP parallel handle */
                      ompd_word_t *val     /* OUT: number of threads */
