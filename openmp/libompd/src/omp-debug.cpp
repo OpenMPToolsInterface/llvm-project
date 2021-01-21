@@ -33,6 +33,9 @@
 
 ompd_device_type_sizes_t type_sizes;
 uint64_t ompd_state;
+ompd_rc_t ompd_get_num_threads(
+    ompd_parallel_handle_t *parallel_handle, /* IN: OpenMP parallel handle */
+    ompd_word_t *val     /* OUT: number of threads */);
 
 /* --- OMPD functions ------------------------------------------------------- */
 
@@ -40,6 +43,11 @@ uint64_t ompd_state;
 
 ompd_rc_t ompd_initialize(ompd_word_t version, const ompd_callbacks_t *table) {
   ompd_rc_t ret = table ? ompd_rc_ok : ompd_rc_bad_input;
+  ompd_word_t ompd_version;
+
+  ompd_get_api_version(&ompd_version);
+  if (version != ompd_version)
+    return ompd_rc_unsupported;
   callbacks = table;
   TValue::callbacks = table;
   __ompd_init_icvs(table);
@@ -76,6 +84,7 @@ ompd_process_initialize(ompd_address_space_context_t
     return ret;
   if (!handle)
     return ompd_rc_error;
+
   (*handle)->context = context;
   (*handle)->kind = OMPD_DEVICE_KIND_HOST;
 
@@ -88,6 +97,9 @@ ompd_get_omp_version(ompd_address_space_handle_t
                      ompd_word_t *version) {
   if (!address_space)
     return ompd_rc_stale_handle;
+  if (!version)
+    return ompd_rc_bad_input;
+
   ompd_address_space_context_t *context = address_space->context;
   ompd_rc_t ret;
 
@@ -109,6 +121,8 @@ ompd_rc_t ompd_get_omp_version_string(
         *address_space, /* IN: handle for the address space */
     const char **string) {
   if (!address_space)
+    return ompd_rc_stale_handle;
+  if (!string)
     return ompd_rc_bad_input;
   ompd_address_space_context_t *context = address_space->context;
   ompd_word_t ver;
@@ -210,6 +224,13 @@ ompd_rc_t ompd_get_thread_in_parallel(
     return ompd_rc_callback_error;
   }
 
+  ompd_word_t team_size_var;
+  ret = ompd_get_num_threads (parallel_handle, &team_size_var);
+  if (ret != ompd_rc_ok)
+    return ret;
+  if (thread_num < 0 || thread_num >= team_size_var)
+    return ompd_rc_bad_input;
+
   ompd_address_t taddr={OMPD_SEGMENT_UNSPECIFIED,0};
 
   if (parallel_handle->ah->kind == OMPD_DEVICE_KIND_CUDA) {
@@ -294,6 +315,8 @@ ompd_rc_t ompd_thread_handle_compare(ompd_thread_handle_t *thread_handle_1,
     return ompd_rc_stale_handle;
   if (!thread_handle_2)
     return ompd_rc_stale_handle;
+  if (!cmp_value)
+    return ompd_rc_bad_input;
   if (thread_handle_1->ah->kind != thread_handle_2->ah->kind)
     return ompd_rc_bad_input;
   *cmp_value = thread_handle_1->th.address - thread_handle_2->th.address;
@@ -675,6 +698,8 @@ ompd_parallel_handle_compare(ompd_parallel_handle_t *parallel_handle_1,
     return ompd_rc_stale_handle;
   if (!parallel_handle_2)
     return ompd_rc_stale_handle;
+  if (!cmp_value)
+    return ompd_rc_bad_input;
   if (parallel_handle_1->ah->kind != parallel_handle_2->ah->kind)
     return ompd_rc_bad_input;
   if (parallel_handle_1->ah->kind == OMPD_DEVICE_KIND_HOST) {
@@ -756,15 +781,16 @@ ompd_rc_t ompd_get_generating_task_handle(
     ompd_task_handle_t *task_handle,        /* IN: OpenMP task handle */
     ompd_task_handle_t **parent_task_handle /* OUT: OpenMP task handle */
     ) {
+  if (!task_handle)
+    return ompd_rc_stale_handle;
+  if (!task_handle->ah)
+    return ompd_rc_stale_handle;
+
   // Generating and Scheduling task are the same on cuda?
   if (task_handle->ah->kind == OMPD_DEVICE_KIND_CUDA) {
     return ompd_get_scheduling_task_handle(task_handle, parent_task_handle);
   }
 
-  if (!task_handle)
-    return ompd_rc_stale_handle;
-  if (!task_handle->ah)
-    return ompd_rc_stale_handle;
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
@@ -897,6 +923,13 @@ ompd_rc_t ompd_get_task_in_parallel(
   }
 
   ompd_rc_t ret;
+  ompd_word_t team_size_var;
+  ret = ompd_get_num_threads (parallel_handle, &team_size_var);
+  if (ret != ompd_rc_ok)
+    return ret;
+  if (thread_num < 0 || thread_num >= team_size_var)
+    return ompd_rc_bad_input;
+
   ompd_address_t taddr={OMPD_SEGMENT_UNSPECIFIED,0};
 
   if (parallel_handle->ah->kind == OMPD_DEVICE_KIND_CUDA) {
@@ -950,6 +983,8 @@ ompd_rc_t ompd_task_handle_compare(ompd_task_handle_t *task_handle_1,
     return ompd_rc_stale_handle;
   if (!task_handle_2)
     return ompd_rc_stale_handle;
+  if (!cmp_value)
+    return ompd_rc_bad_input;
   if (task_handle_1->ah->kind != task_handle_2->ah->kind)
     return ompd_rc_bad_input;
   if (task_handle_1->th.address - task_handle_2->th.address ||
@@ -987,7 +1022,7 @@ ompd_get_thread_handle(ompd_address_space_handle_t
   int tId;
 
   if (kind == OMPD_THREAD_ID_CUDALOGICAL) {
-    ompd_cudathread_coord_t *p = (ompd_cudathread_coord_t *)thread_id;
+    const ompd_cudathread_coord_t *p = (const ompd_cudathread_coord_t *)thread_id;
 
     // omptarget_nvptx_threadPrivateContext->topTaskDescr[p->threadIdx.x]
     TValue th = TValue(context, tcontext,
@@ -1117,6 +1152,8 @@ ompd_rc_t ompd_get_thread_id(
     ompd_thread_handle_t *thread_handle, /* IN: OpenMP thread handle*/
     ompd_thread_id_t kind, ompd_size_t sizeof_thread_id, void *thread_id) {
   if (kind != OMPD_THREAD_ID_PTHREAD && kind != OMPD_THREAD_ID_CUDALOGICAL)
+    return ompd_rc_unsupported;
+  if (!thread_id)
     return ompd_rc_bad_input;
   if (!thread_handle)
     return ompd_rc_stale_handle;
@@ -1203,6 +1240,8 @@ ompd_rc_t ompd_get_state(
     return ompd_rc_stale_handle;
   if (!thread_handle->ah)
     return ompd_rc_stale_handle;
+  if (!state)
+    return ompd_rc_bad_input;
   ompd_address_space_context_t *context = thread_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
@@ -1238,10 +1277,11 @@ ompd_rc_t ompd_get_state(
             .getValue(*state);
     if (ret != ompd_rc_ok)
       return ret;
-    ret = ompt_thread_info
-              .access("wait_id") /*__kmp_threads[t]->th.ompt_thread_info.state*/
-              .castBase()
-              .getValue(*wait_id);
+    if (wait_id)
+      ret = ompt_thread_info
+             .access("wait_id") /*__kmp_threads[t]->th.ompt_thread_info.state*/
+             .castBase()
+             .getValue(*wait_id);
   }
   return ret;
 }
@@ -1261,6 +1301,8 @@ ompd_rc_t ompd_get_task_frame(
     return ompd_rc_stale_handle;
   if (!task_handle->ah)
     return ompd_rc_stale_handle;
+  if (!exit_frame || !enter_frame)
+    return ompd_rc_bad_input;
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
@@ -1314,6 +1356,8 @@ ompd_rc_t ompd_get_task_function(
     return ompd_rc_stale_handle;
   if (!task_handle->ah)
     return ompd_rc_stale_handle;
+  if (!task_addr)
+    return ompd_rc_bad_input;
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
@@ -1385,6 +1429,9 @@ ompd_rc_t ompd_get_task_function(
 /* ------- OMPD Version and Compatibility Information ----------------------- */
 
 ompd_rc_t ompd_get_api_version(ompd_word_t *version) {
+  if (!version)
+    return ompd_rc_bad_input;
+
   *version = OMPD_VERSION;
   return ompd_rc_ok;
 }
@@ -1392,6 +1439,9 @@ ompd_rc_t ompd_get_api_version(ompd_word_t *version) {
 ompd_rc_t
 ompd_get_version_string(const char **string /* OUT: OMPD version string */
                             ) {
+  if (!string)
+    return ompd_rc_bad_input;
+
   static const char version_string[] =
       "LLVM OpenMP " STR(OMPD_IMPLEMENTS_OPENMP) "." STR(
           OMPD_IMPLEMENTS_OPENMP_SUBVERSION) " Debugging Library implmenting "

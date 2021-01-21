@@ -1,5 +1,5 @@
 // RUN: %gdb-compile 2>&1 | tee %t.compile
-// RUN: %gdb-test -x %S/ompd_icvs.cmd %t 2>&1 | tee %t.out | FileCheck %s
+// RUN: env OMP_SCHEDULE=dynamic,2 %gdb-test -x %S/ompd_icvs.cmd %t 2>&1 | tee %t.out | FileCheck %s
 
 #include <stdio.h>
 #include <omp.h>
@@ -15,15 +15,6 @@ int main (void)
     {
       #pragma omp single
       {
-        /*
-        * If OMP_NUM_THREADS=2,3 was set, the following should print:
-        * Inner: num_thds=3
-        * Inner: num_thds=3
-        *
-        * If nesting is not supported, the following should print:
-        * Inner: num_thds=1
-        * Inner: num_thds=1
-        */
         printf ("Inner: num_thds=%d\n", omp_get_num_threads());
       }
     }
@@ -33,22 +24,12 @@ int main (void)
     {
       #pragma omp single
       {
-        /*
-        * Even if OMP_NUM_THREADS=2,3 was set, the following should
-        * print, because nesting is disabled:
-        * Inner: num_thds=1
-        * Inner: num_thds=1
-        */
         printf ("Inner: num_thds=%d\n", omp_get_num_threads());
       }
     }
     #pragma omp barrier
     #pragma omp single
     {
-      /*
-      * If OMP_NUM_THREADS=2,3 was set, the following should print:
-      * Outer: num_thds=2
-      */
       printf ("Outer: num_thds=%d\n", omp_get_num_threads());
     }
   }
@@ -56,6 +37,7 @@ int main (void)
 }
 // CHECK: Loaded OMPD lib successfully!
 
+// CHECK: run-sched-var                   task                       dynamic,2
 // CHECK: levels-var                      parallel                   2
 // CHECK: active-levels-var               parallel                   2
 // CHECK: team-size-var                   parallel                   5
