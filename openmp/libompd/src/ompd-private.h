@@ -1,3 +1,15 @@
+/*
+ * ompd-private.h
+ */
+
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #ifndef SRC_OMPD_PRIVATE_H_
 #define SRC_OMPD_PRIVATE_H_
 
@@ -45,14 +57,6 @@
     macro (ompt_state_overhead, 0x101)       /* overhead excluding wait states */                \
                                                                                                 \
     /* implementation-specific states (512..) */
-
-#if 0
-typedef enum ompd_state_t {
-#define ompd_state_macro(state, code) state = code,
-  FOREACH_OMPD_STATE(ompd_state_macro)
-#undef ompd_state_macro
-} ompd_state_t;
-#endif
 
 #define OMPD_LAST_OMP_STATE ompt_state_overhead
 

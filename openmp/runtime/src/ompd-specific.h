@@ -1,3 +1,15 @@
+/*
+ * ompd-specific.h -- OpenMP debug support
+ */
+
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include "kmp.h"
 #include "omp-tools.h"
 #include <stdint.h>
@@ -5,7 +17,7 @@
 #ifndef __OMPD_SPECIFIC_H__
 #define __OMPD_SPECIFIC_H__
 
-#ifdef OMPD_SUPPORT
+#if OMPD_SUPPORT
 
 void ompd_init();
 //extern volatile const char * * ompd_dll_locations;
@@ -16,15 +28,7 @@ extern "C" {
 #endif
 extern char *ompd_env_block;
 extern ompd_size_t ompd_env_block_size;
-#if 0
-void __attribute__ ((noinline)) ompd_dll_locations_valid ( void );
-void __attribute__ ((noinline)) ompd_bp_parallel_begin ( void );
-void __attribute__ ((noinline)) ompd_bp_parallel_end ( void );
-void __attribute__ ((noinline)) ompd_bp_task_begin ( void );
-void __attribute__ ((noinline)) ompd_bp_task_end ( void );
-void __attribute__ ((noinline)) ompd_bp_thread_begin ( void );
-void __attribute__ ((noinline)) ompd_bp_thread_end ( void );
-#endif
+extern char *__kmp_tool_verbose_init;
 #ifdef  __cplusplus
 } /* extern "C" */
 #endif
@@ -84,6 +88,9 @@ OMPD_ACCESS(kmp_team_p,           t) \
 OMPD_ACCESS(kmp_nested_nthreads_t, used) \
 OMPD_ACCESS(kmp_nested_nthreads_t, nth) \
 \
+OMPD_ACCESS(kmp_nested_proc_bind_t, used) \
+OMPD_ACCESS(kmp_nested_proc_bind_t, bind_types) \
+\
 OMPD_ACCESS(ompt_task_info_t,     frame) \
 OMPD_ACCESS(ompt_task_info_t,     scheduling_parent) \
 OMPD_ACCESS(ompt_task_info_t,     task_data) \
@@ -140,10 +147,13 @@ OMPD_SIZEOF(__kmp_max_task_priority) \
 OMPD_SIZEOF(__kmp_display_affinity) \
 OMPD_SIZEOF(__kmp_affinity_format) \
 OMPD_SIZEOF(__kmp_tool_libraries) \
+OMPD_SIZEOF(__kmp_tool_verbose_init) \
 OMPD_SIZEOF(__kmp_tool) \
 OMPD_SIZEOF(ompd_state) \
 OMPD_SIZEOF(kmp_nested_nthreads_t) \
 OMPD_SIZEOF(__kmp_nested_nth) \
+OMPD_SIZEOF(kmp_nested_proc_bind_t) \
+OMPD_SIZEOF(__kmp_nested_proc_bind) \
 OMPD_SIZEOF(int) \
 OMPD_SIZEOF(char) \
 OMPD_SIZEOF(__kmp_gtid) \

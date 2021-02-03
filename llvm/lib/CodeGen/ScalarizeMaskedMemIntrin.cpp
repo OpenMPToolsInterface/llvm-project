@@ -42,9 +42,6 @@ using namespace llvm;
 namespace {
 
 class ScalarizeMaskedMemIntrin : public FunctionPass {
-  const TargetTransformInfo *TTI = nullptr;
-  const DataLayout *DL = nullptr;
-
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -61,13 +58,15 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<TargetTransformInfoWrapperPass>();
   }
-
-private:
-  bool optimizeBlock(BasicBlock &BB, bool &ModifiedDT);
-  bool optimizeCallInst(CallInst *CI, bool &ModifiedDT);
 };
 
 } // end anonymous namespace
+
+static bool optimizeBlock(BasicBlock &BB, bool &ModifiedDT,
+                          const TargetTransformInfo &TTI, const DataLayout &DL);
+static bool optimizeCallInst(CallInst *CI, bool &ModifiedDT,
+                             const TargetTransformInfo &TTI,
+                             const DataLayout &DL);
 
 char ScalarizeMaskedMemIntrin::ID = 0;
 
@@ -622,18 +621,29 @@ static void scalarizeMaskedExpandLoad(CallInst *CI, bool &ModifiedDT) {
   Value *VResult = PassThru;
 
   // Shorten the way if the mask is a vector of constants.
+  // Create a build_vector pattern, with loads/undefs as necessary and then
+  // shuffle blend with the pass through value.
   if (isConstantIntVector(Mask)) {
     unsigned MemIndex = 0;
+    VResult = UndefValue::get(VecType);
+    SmallVector<int, 16> ShuffleMask(VectorWidth, UndefMaskElem);
     for (unsigned Idx = 0; Idx < VectorWidth; ++Idx) {
-      if (cast<Constant>(Mask)->getAggregateElement(Idx)->isNullValue())
-        continue;
-      Value *NewPtr = Builder.CreateConstInBoundsGEP1_32(EltTy, Ptr, MemIndex);
-      LoadInst *Load = Builder.CreateAlignedLoad(EltTy, NewPtr, Align(1),
-                                                 "Load" + Twine(Idx));
-      VResult =
-          Builder.CreateInsertElement(VResult, Load, Idx, "Res" + Twine(Idx));
-      ++MemIndex;
+      Value *InsertElt;
+      if (cast<Constant>(Mask)->getAggregateElement(Idx)->isNullValue()) {
+        InsertElt = UndefValue::get(EltTy);
+        ShuffleMask[Idx] = Idx + VectorWidth;
+      } else {
+        Value *NewPtr =
+            Builder.CreateConstInBoundsGEP1_32(EltTy, Ptr, MemIndex);
+        InsertElt = Builder.CreateAlignedLoad(EltTy, NewPtr, Align(1),
+                                              "Load" + Twine(Idx));
+        ShuffleMask[Idx] = Idx;
+        ++MemIndex;
+      }
+      VResult = Builder.CreateInsertElement(VResult, InsertElt, Idx,
+                                            "Res" + Twine(Idx));
     }
+    VResult = Builder.CreateShuffleVector(VResult, PassThru, ShuffleMask);
     CI->replaceAllUsesWith(VResult);
     CI->eraseFromParent();
     return;
@@ -814,8 +824,8 @@ static void scalarizeMaskedCompressStore(CallInst *CI, bool &ModifiedDT) {
 bool ScalarizeMaskedMemIntrin::runOnFunction(Function &F) {
   bool EverMadeChange = false;
 
-  TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-  DL = &F.getParent()->getDataLayout();
+  auto &TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+  auto &DL = F.getParent()->getDataLayout();
 
   bool MadeChange = true;
   while (MadeChange) {
@@ -823,7 +833,7 @@ bool ScalarizeMaskedMemIntrin::runOnFunction(Function &F) {
     for (Function::iterator I = F.begin(); I != F.end();) {
       BasicBlock *BB = &*I++;
       bool ModifiedDTOnIteration = false;
-      MadeChange |= optimizeBlock(*BB, ModifiedDTOnIteration);
+      MadeChange |= optimizeBlock(*BB, ModifiedDTOnIteration, TTI, DL);
 
       // Restart BB iteration if the dominator tree of the Function was changed
       if (ModifiedDTOnIteration)
@@ -836,13 +846,15 @@ bool ScalarizeMaskedMemIntrin::runOnFunction(Function &F) {
   return EverMadeChange;
 }
 
-bool ScalarizeMaskedMemIntrin::optimizeBlock(BasicBlock &BB, bool &ModifiedDT) {
+static bool optimizeBlock(BasicBlock &BB, bool &ModifiedDT,
+                          const TargetTransformInfo &TTI,
+                          const DataLayout &DL) {
   bool MadeChange = false;
 
   BasicBlock::iterator CurInstIterator = BB.begin();
   while (CurInstIterator != BB.end()) {
     if (CallInst *CI = dyn_cast<CallInst>(&*CurInstIterator++))
-      MadeChange |= optimizeCallInst(CI, ModifiedDT);
+      MadeChange |= optimizeCallInst(CI, ModifiedDT, TTI, DL);
     if (ModifiedDT)
       return true;
   }
@@ -850,23 +862,30 @@ bool ScalarizeMaskedMemIntrin::optimizeBlock(BasicBlock &BB, bool &ModifiedDT) {
   return MadeChange;
 }
 
-bool ScalarizeMaskedMemIntrin::optimizeCallInst(CallInst *CI,
-                                                bool &ModifiedDT) {
+static bool optimizeCallInst(CallInst *CI, bool &ModifiedDT,
+                             const TargetTransformInfo &TTI,
+                             const DataLayout &DL) {
   IntrinsicInst *II = dyn_cast<IntrinsicInst>(CI);
   if (II) {
+    // The scalarization code below does not work for scalable vectors.
+    if (isa<ScalableVectorType>(II->getType()) ||
+        any_of(II->arg_operands(),
+               [](Value *V) { return isa<ScalableVectorType>(V->getType()); }))
+      return false;
+
     switch (II->getIntrinsicID()) {
     default:
       break;
     case Intrinsic::masked_load:
       // Scalarize unsupported vector masked load
-      if (TTI->isLegalMaskedLoad(
+      if (TTI.isLegalMaskedLoad(
               CI->getType(),
               cast<ConstantInt>(CI->getArgOperand(1))->getAlignValue()))
         return false;
       scalarizeMaskedLoad(CI, ModifiedDT);
       return true;
     case Intrinsic::masked_store:
-      if (TTI->isLegalMaskedStore(
+      if (TTI.isLegalMaskedStore(
               CI->getArgOperand(0)->getType(),
               cast<ConstantInt>(CI->getArgOperand(2))->getAlignValue()))
         return false;
@@ -877,8 +896,8 @@ bool ScalarizeMaskedMemIntrin::optimizeCallInst(CallInst *CI,
           cast<ConstantInt>(CI->getArgOperand(1))->getZExtValue();
       Type *LoadTy = CI->getType();
       Align Alignment =
-          DL->getValueOrABITypeAlignment(MaybeAlign(AlignmentInt), LoadTy);
-      if (TTI->isLegalMaskedGather(LoadTy, Alignment))
+          DL.getValueOrABITypeAlignment(MaybeAlign(AlignmentInt), LoadTy);
+      if (TTI.isLegalMaskedGather(LoadTy, Alignment))
         return false;
       scalarizeMaskedGather(CI, ModifiedDT);
       return true;
@@ -888,19 +907,19 @@ bool ScalarizeMaskedMemIntrin::optimizeCallInst(CallInst *CI,
           cast<ConstantInt>(CI->getArgOperand(2))->getZExtValue();
       Type *StoreTy = CI->getArgOperand(0)->getType();
       Align Alignment =
-          DL->getValueOrABITypeAlignment(MaybeAlign(AlignmentInt), StoreTy);
-      if (TTI->isLegalMaskedScatter(StoreTy, Alignment))
+          DL.getValueOrABITypeAlignment(MaybeAlign(AlignmentInt), StoreTy);
+      if (TTI.isLegalMaskedScatter(StoreTy, Alignment))
         return false;
       scalarizeMaskedScatter(CI, ModifiedDT);
       return true;
     }
     case Intrinsic::masked_expandload:
-      if (TTI->isLegalMaskedExpandLoad(CI->getType()))
+      if (TTI.isLegalMaskedExpandLoad(CI->getType()))
         return false;
       scalarizeMaskedExpandLoad(CI, ModifiedDT);
       return true;
     case Intrinsic::masked_compressstore:
-      if (TTI->isLegalMaskedCompressStore(CI->getArgOperand(0)->getType()))
+      if (TTI.isLegalMaskedCompressStore(CI->getArgOperand(0)->getType()))
         return false;
       scalarizeMaskedCompressStore(CI, ModifiedDT);
       return true;

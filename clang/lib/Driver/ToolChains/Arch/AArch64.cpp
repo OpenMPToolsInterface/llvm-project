@@ -40,8 +40,19 @@ std::string aarch64::getAArch64TargetCPU(const ArgList &Args,
   // Handle CPU name is 'native'.
   if (CPU == "native")
     return std::string(llvm::sys::getHostCPUName());
-  else if (CPU.size())
+
+  // arm64e requires v8.3a and only runs on apple-a12 and later CPUs.
+  if (Triple.isArm64e())
+    return "apple-a12";
+
+  if (CPU.size())
     return CPU;
+
+  if (Triple.isTargetMachineMac() &&
+      Triple.getArch() == llvm::Triple::aarch64) {
+    // Apple Silicon macs default to A12 CPUs.
+    return "apple-a12";
+  }
 
   // Make sure we pick the appropriate Apple CPU if -arch is used or when
   // targetting a Darwin OS.
@@ -94,7 +105,7 @@ static bool DecodeAArch64Mcpu(const Driver &D, StringRef Mcpu, StringRef &CPU,
     if (!llvm::AArch64::getArchFeatures(ArchKind, Features))
       return false;
 
-    unsigned Extension = llvm::AArch64::getDefaultExtensions(CPU, ArchKind);
+    uint64_t Extension = llvm::AArch64::getDefaultExtensions(CPU, ArchKind);
     if (!llvm::AArch64::getExtensionFeatures(Extension, Features))
       return false;
    }
@@ -306,7 +317,8 @@ fp16_fml_fallthrough:
       NoCrypto = true;
   }
 
-  if (std::find(ItBegin, ItEnd, "+v8.4a") != ItEnd) {
+  if (std::find(ItBegin, ItEnd, "+v8.4a") != ItEnd ||
+      std::find(ItBegin, ItEnd, "+v8r") != ItEnd) {
     if (HasCrypto && !NoCrypto) {
       // Check if we have NOT disabled an algorithm with something like:
       //   +crypto, -algorithm
@@ -376,9 +388,11 @@ fp16_fml_fallthrough:
       D.Diag(diag::err_drv_invalid_sve_vector_bits);
 
   if (Arg *A = Args.getLastArg(options::OPT_mno_unaligned_access,
-                               options::OPT_munaligned_access))
+                               options::OPT_munaligned_access)) {
     if (A->getOption().matches(options::OPT_mno_unaligned_access))
       Features.push_back("+strict-align");
+  } else if (Triple.isOSOpenBSD())
+    Features.push_back("+strict-align");
 
   if (Args.hasArg(options::OPT_ffixed_x1))
     Features.push_back("+reserve-x1");

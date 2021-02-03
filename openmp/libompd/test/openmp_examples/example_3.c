@@ -1,4 +1,5 @@
-// RUN: %gdb-compile-and-run 2>&1 | tee %t.out | FileCheck %s
+// RUN: %gdb-compile 2>&1 | tee %t.compile
+// RUN: env OMP_SCHEDULE=static %gdb-run 2>&1 | tee %t.out | FileCheck %s
 
 #include <stdio.h>
 #include <unistd.h>
@@ -15,7 +16,7 @@ void bar()
 
 void foo()
 {
-  omp_set_nested(1);
+  omp_set_max_active_levels(10);
   #pragma omp parallel num_threads(2)
   {
     if (omp_get_thread_num() == 0) 

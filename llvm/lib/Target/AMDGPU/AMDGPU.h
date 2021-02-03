@@ -52,7 +52,6 @@ FunctionPass *createSIAnnotateControlFlowPass();
 FunctionPass *createSIFoldOperandsPass();
 FunctionPass *createSIPeepholeSDWAPass();
 FunctionPass *createSILowerI1CopiesPass();
-FunctionPass *createSIFixupVectorISelPass();
 FunctionPass *createSIAddIMGInitPass();
 FunctionPass *createSIShrinkInstructionsPass();
 FunctionPass *createSILoadStoreOptimizerPass();
@@ -69,6 +68,7 @@ FunctionPass *createSIPostRABundlerPass();
 FunctionPass *createAMDGPUSimplifyLibCallsPass(const TargetMachine *);
 FunctionPass *createAMDGPUUseNativeCallsPass();
 FunctionPass *createAMDGPUCodeGenPreparePass();
+FunctionPass *createAMDGPULateCodeGenPreparePass();
 FunctionPass *createAMDGPUMachineCFGStructurizerPass();
 FunctionPass *createAMDGPUPropagateAttributesEarlyPass(const TargetMachine *);
 ModulePass *createAMDGPUPropagateAttributesLatePass(const TargetMachine *);
@@ -148,9 +148,6 @@ extern char &SIFixSGPRCopiesID;
 void initializeSIFixVGPRCopiesPass(PassRegistry &);
 extern char &SIFixVGPRCopiesID;
 
-void initializeSIFixupVectorISelPass(PassRegistry &);
-extern char &SIFixupVectorISelID;
-
 void initializeSILowerI1CopiesPass(PassRegistry &);
 extern char &SILowerI1CopiesID;
 
@@ -227,6 +224,9 @@ extern char &AMDGPUAnnotateUniformValuesPassID;
 void initializeAMDGPUCodeGenPreparePass(PassRegistry&);
 extern char &AMDGPUCodeGenPrepareID;
 
+void initializeAMDGPULateCodeGenPreparePass(PassRegistry &);
+extern char &AMDGPULateCodeGenPrepareID;
+
 void initializeSIAnnotateControlFlowPass(PassRegistry&);
 extern char &SIAnnotateControlFlowPassID;
 
@@ -280,8 +280,6 @@ enum TargetIndex {
   TI_SCRATCH_RSRC_DWORD3
 };
 }
-
-} // End namespace llvm
 
 /// OpenCL uses address spaces to differentiate between
 /// various memory regions on the hardware. On the CPU
@@ -338,5 +336,18 @@ namespace AMDGPUAS {
     UNKNOWN_ADDRESS_SPACE = ~0u,
   };
 }
+
+namespace AMDGPU {
+
+// FIXME: Missing constant_32bit
+inline bool isFlatGlobalAddrSpace(unsigned AS) {
+  return AS == AMDGPUAS::GLOBAL_ADDRESS ||
+         AS == AMDGPUAS::FLAT_ADDRESS ||
+         AS == AMDGPUAS::CONSTANT_ADDRESS ||
+         AS > AMDGPUAS::MAX_AMDGPU_ADDRESS;
+}
+}
+
+} // End namespace llvm
 
 #endif

@@ -1,4 +1,5 @@
-// RUN: %gdb-compile-and-run 2>&1 | tee %t.out | FileCheck %s
+// RUN: %gdb-compile 2>&1 | tee %t.compile
+// RUN: env OMP_SCHEDULE=guided,10 %gdb-run 2>&1 | tee %t.out | FileCheck %s
 
 #include <stdio.h>
 #include <omp.h>
@@ -12,7 +13,7 @@ int main()
     int number;
     int i;
     omp_set_num_threads(3);
-    omp_set_nested(1); // 1 - enables nested parallelism; 0 - disables nested parallelism.
+    omp_set_max_active_levels(10);
 
     #pragma omp parallel // parallel region begins
     {        

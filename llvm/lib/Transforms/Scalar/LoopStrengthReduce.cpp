@@ -75,6 +75,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/ScalarEvolutionNormalization.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/BasicBlock.h"
@@ -935,6 +936,8 @@ static bool isHighCostExpansion(const SCEV *S,
   case scSignExtend:
     return isHighCostExpansion(cast<SCEVSignExtendExpr>(S)->getOperand(),
                                Processed, SE);
+  default:
+    break;
   }
 
   if (!Processed.insert(S).second)
@@ -1210,7 +1213,7 @@ static unsigned getSetupCost(const SCEV *Reg, unsigned Depth) {
     return 0;
   if (const auto *S = dyn_cast<SCEVAddRecExpr>(Reg))
     return getSetupCost(S->getStart(), Depth - 1);
-  if (auto S = dyn_cast<SCEVCastExpr>(Reg))
+  if (auto S = dyn_cast<SCEVIntegralCastExpr>(Reg))
     return getSetupCost(S->getOperand(), Depth - 1);
   if (auto S = dyn_cast<SCEVNAryExpr>(Reg))
     return std::accumulate(S->op_begin(), S->op_end(), 0,
@@ -2786,6 +2789,7 @@ static const SCEV *getExprBase(const SCEV *S) {
   case scAddRecExpr:
     return getExprBase(cast<SCEVAddRecExpr>(S)->getStart());
   }
+  llvm_unreachable("Unknown SCEV kind!");
 }
 
 /// Return true if the chain increment is profitable to expand into a loop
@@ -2861,7 +2865,6 @@ static bool isProfitableChain(IVChain &Chain,
   for (const IVInc &Inc : Chain) {
     if (TTI.isProfitableLSRChainElement(Inc.UserInst))
       return true;
-
     if (Inc.IncExpr->isZero())
       continue;
 
@@ -3401,7 +3404,7 @@ LSRInstance::CollectLoopInvariantFixupsAndFormulae() {
 
     if (const SCEVNAryExpr *N = dyn_cast<SCEVNAryExpr>(S))
       Worklist.append(N->op_begin(), N->op_end());
-    else if (const SCEVCastExpr *C = dyn_cast<SCEVCastExpr>(S))
+    else if (const SCEVIntegralCastExpr *C = dyn_cast<SCEVIntegralCastExpr>(S))
       Worklist.push_back(C->getOperand());
     else if (const SCEVUDivExpr *D = dyn_cast<SCEVUDivExpr>(S)) {
       Worklist.push_back(D->getLHS());
@@ -3834,10 +3837,14 @@ void LSRInstance::GenerateConstantOffsetsImpl(
   F.BaseOffset = (uint64_t)F.BaseOffset + Imm;
   if (!isLegalUse(TTI, LU.MinOffset, LU.MaxOffset, LU.Kind, LU.AccessTy, F))
     return;
-  if (IsScaledReg)
+  if (IsScaledReg) {
     F.ScaledReg = G;
-  else
+  } else {
     F.BaseRegs[Idx] = G;
+    // We may generate non canonical Formula if G is a recurrent expr reg
+    // related with current loop while F.ScaledReg is not.
+    F.canonicalize(*L);
+  }
   (void)InsertFormula(LU, LUIdx, F);
 }
 
@@ -5378,10 +5385,11 @@ void LSRInstance::RewriteForPHI(
           // Split the critical edge.
           BasicBlock *NewBB = nullptr;
           if (!Parent->isLandingPad()) {
-            NewBB = SplitCriticalEdge(BB, Parent,
-                                      CriticalEdgeSplittingOptions(&DT, &LI)
-                                          .setMergeIdenticalEdges()
-                                          .setKeepOneInputPHIs());
+            NewBB =
+                SplitCriticalEdge(BB, Parent,
+                                  CriticalEdgeSplittingOptions(&DT, &LI, MSSAU)
+                                      .setMergeIdenticalEdges()
+                                      .setKeepOneInputPHIs());
           } else {
             SmallVector<BasicBlock*, 2> NewBBs;
             SplitLandingPadPredecessors(Parent, BB, "", "", NewBBs, &DT, &LI);
@@ -5514,8 +5522,8 @@ void LSRInstance::ImplementSolution(
   // we can remove them after we are done working.
   SmallVector<WeakTrackingVH, 16> DeadInsts;
 
-  SCEVExpander Rewriter(SE, L->getHeader()->getModule()->getDataLayout(),
-                        "lsr");
+  SCEVExpander Rewriter(SE, L->getHeader()->getModule()->getDataLayout(), "lsr",
+                        false);
 #ifndef NDEBUG
   Rewriter.setDebugType(DEBUG_TYPE);
 #endif
@@ -5614,13 +5622,19 @@ LSRInstance::LSRInstance(Loop *L, IVUsers &IU, ScalarEvolution &SE,
   if (IU.empty()) return;
 
   // Skip nested loops until we can model them better with formulae.
-  if (!L->empty()) {
+  if (!L->isInnermost()) {
     LLVM_DEBUG(dbgs() << "LSR skipping outer loop " << *L << "\n");
     return;
   }
 
   // Start collecting data and preparing for the solver.
-  CollectChains();
+  // If number of registers is not the major cost, we cannot benefit from the
+  // current profitable chain optimization which is based on number of
+  // registers.
+  // FIXME: add profitable chain optimization for other kinds major cost, for
+  // example number of instructions.
+  if (TTI.isNumRegsMajorCostOfLSR() || StressIVChain)
+    CollectChains();
   CollectInterestingTypesAndFactors();
   CollectFixupsAndInitialFormulae();
   CollectLoopInvariantFixupsAndFormulae();
@@ -5780,7 +5794,7 @@ static bool ReduceLoopStrength(Loop *L, IVUsers &IU, ScalarEvolution &SE,
   if (EnablePhiElim && L->isLoopSimplifyForm()) {
     SmallVector<WeakTrackingVH, 16> DeadInsts;
     const DataLayout &DL = L->getHeader()->getModule()->getDataLayout();
-    SCEVExpander Rewriter(SE, DL, "lsr");
+    SCEVExpander Rewriter(SE, DL, "lsr", false);
 #ifndef NDEBUG
     Rewriter.setDebugType(DEBUG_TYPE);
 #endif

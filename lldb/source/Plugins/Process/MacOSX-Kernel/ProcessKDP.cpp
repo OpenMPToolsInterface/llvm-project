@@ -111,7 +111,8 @@ void ProcessKDP::Terminate() {
 
 lldb::ProcessSP ProcessKDP::CreateInstance(TargetSP target_sp,
                                            ListenerSP listener_sp,
-                                           const FileSpec *crash_file_path) {
+                                           const FileSpec *crash_file_path,
+                                           bool can_connect) {
   lldb::ProcessSP process_sp;
   if (crash_file_path == NULL)
     process_sp = std::make_shared<ProcessKDP>(target_sp, listener_sp);
@@ -644,6 +645,9 @@ Status ProcessKDP::DoDeallocateMemory(lldb::addr_t addr) {
 }
 
 Status ProcessKDP::EnableBreakpointSite(BreakpointSite *bp_site) {
+  if (bp_site->HardwareRequired())
+    return Status("Hardware breakpoints are not supported.");
+
   if (m_comm.LocalBreakpointsAreSupported()) {
     Status error;
     if (!bp_site->IsEnabled()) {

@@ -1,3 +1,13 @@
+#
+#//===----------------------------------------------------------------------===//
+#//
+#// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+#// See https://llvm.org/LICENSE.txt for license information.
+#// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#//
+#//===----------------------------------------------------------------------===//
+#
+
 project (libompd)
 cmake_minimum_required(VERSION 3.13.4)
 
@@ -31,6 +41,7 @@ endif()
 include_directories (
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${LIBOMP_INCLUDE_DIR}
+        ${LIBOMP_SRC_DIR}
 )
 
 INSTALL( TARGETS ompd

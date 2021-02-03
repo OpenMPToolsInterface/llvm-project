@@ -1,10 +1,29 @@
+/*
+ * omp-icv.cpp -- OMPD Internal Control Variable handling
+ */
+
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include <cstring>
 #include "omp-debug.h"
+#include "omp.h"
 #include "ompd-private.h"
 #include "TargetValue.h"
+#include "kmp.h"
+
+/* The ICVs ompd-final-var and ompd-implicit-var below are for backward
+ * compatibility with 5.0.
+ */
 
 #define FOREACH_OMPD_ICV(macro)                                                \
     macro (dyn_var, "dyn-var", ompd_scope_thread, 0)                           \
+    macro (run_sched_var, "run-sched-var", ompd_scope_task, 0)                 \
     macro (stacksize_var, "stacksize-var", ompd_scope_address_space, 0)        \
     macro (cancel_var, "cancel-var", ompd_scope_address_space, 0)              \
     macro (max_task_priority_var, "max-task-priority-var", ompd_scope_address_space, 0)  \
@@ -14,17 +33,26 @@
     macro (affinity_format_var, "affinity-format-var", ompd_scope_address_space, 0)      \
     macro (default_device_var, "default-device-var", ompd_scope_thread, 0)     \
     macro (tool_var, "tool-var", ompd_scope_address_space, 0)                  \
-    macro (tool_libraries_var, "tool-libraries-var", ompd_scope_address_space, 0)                  \
+    macro (tool_libraries_var, "tool-libraries-var", ompd_scope_address_space, 0)        \
+    macro (tool_verbose_init_var, "tool-verbose-init-var", ompd_scope_address_space, 0)  \
     macro (levels_var, "levels-var", ompd_scope_parallel, 1)                   \
     macro (active_levels_var, "active-levels-var", ompd_scope_parallel, 0)     \
     macro (thread_limit_var, "thread-limit-var", ompd_scope_task, 0)           \
     macro (max_active_levels_var, "max-active-levels-var", ompd_scope_task, 0) \
     macro (bind_var, "bind-var", ompd_scope_task, 0)                           \
-    macro (num_procs_var, "ompd-num-procs-var", ompd_scope_address_space, 0)   \
-    macro (thread_num_var, "ompd-thread-num-var", ompd_scope_thread, 1)        \
-    macro (final_var, "ompd-final-var", ompd_scope_task, 0)                    \
-    macro (implicit_var, "ompd-implicit-var", ompd_scope_task, 0)              \
-    macro (team_size_var, "ompd-team-size-var", ompd_scope_parallel, 1)        \
+    macro (num_procs_var, "num-procs-var", ompd_scope_address_space, 0)        \
+    macro (ompd_num_procs_var, "ompd-num-procs-var", ompd_scope_address_space, 0)        \
+    macro (thread_num_var, "thread-num-var", ompd_scope_thread, 1)             \
+    macro (ompd_thread_num_var, "ompd-thread-num-var", ompd_scope_thread, 1)   \
+    macro (final_var, "final-task-var", ompd_scope_task, 0)                    \
+    macro (ompd_final_var, "ompd-final-var", ompd_scope_task, 0)               \
+    macro (ompd_final_task_var, "ompd-final-task-var", ompd_scope_task, 0)     \
+    macro (implicit_var, "implicit-task-var", ompd_scope_task, 0)              \
+    macro (ompd_implicit_var, "ompd-implicit-var", ompd_scope_task, 0)         \
+    macro (ompd_implicit_task_var, "ompd-implicit-task-var", ompd_scope_task, 0)         \
+    macro (team_size_var, "team-size-var", ompd_scope_parallel, 1)             \
+    macro (ompd_team_size_var, "ompd-team-size-var", ompd_scope_parallel, 1)   \
+
 
 void __ompd_init_icvs(const ompd_callbacks_t *table) {
   callbacks = table;
@@ -67,6 +95,7 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
                                           ompd_scope_t *next_scope,
                                           int *more) {
   int next_possible_icv = current;
+  char *new_icv_name;
   ompd_rc_t ret;
   do {
     next_possible_icv++;
@@ -80,11 +109,12 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
 
   ret = callbacks->alloc_memory(
       std::strlen(ompd_icv_string_values[*next_id]) + 1,
-      (void**) next_icv_name);
+      (void**) &new_icv_name);
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy((char*)*next_icv_name, ompd_icv_string_values[*next_id]);
+  *next_icv_name = new_icv_name;
+  std::strcpy(new_icv_name, ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
@@ -108,6 +138,9 @@ ompd_rc_t ompd_enumerate_icvs(ompd_address_space_handle_t *handle,
   if (!handle) {
     return ompd_rc_stale_handle;
   }
+  if (!next_id || !next_icv_name || !next_scope || !more) {
+	return ompd_rc_bad_input;
+  }
   if (handle->kind == OMPD_DEVICE_KIND_CUDA) {
     return ompd_enumerate_icvs_cuda(current, next_id, next_icv_name,
                                     next_scope, more);
@@ -124,7 +157,7 @@ ompd_rc_t ompd_enumerate_icvs(ompd_address_space_handle_t *handle,
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy((char*)*next_icv_name, ompd_icv_string_values[*next_id]);
+  std::strcpy(const_cast<char*>(*next_icv_name), ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
@@ -142,7 +175,7 @@ static ompd_rc_t create_empty_string(const char **empty_string_ptr) {
   ompd_rc_t ret;
 
   if (!callbacks) {
-    return ompd_rc_error;
+    return ompd_rc_callback_error;
   }
   ret = callbacks->alloc_memory(1, (void **)&empty_str);
   if (ret != ompd_rc_ok) {
@@ -164,8 +197,9 @@ static ompd_rc_t ompd_get_dynamic(
   ompd_address_space_context_t *context = thread_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   int8_t dynamic;
   ompd_rc_t ret =
@@ -190,8 +224,10 @@ static ompd_rc_t ompd_get_stacksize(
   if (!context)
     return ompd_rc_stale_handle;
   ompd_rc_t ret;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
-  assert(callbacks && "Callback table not initialized!");
   size_t stacksize;
   ret = TValue(context, "__kmp_stksize")
             .castBase("__kmp_stksize")
@@ -207,9 +243,11 @@ static ompd_rc_t ompd_get_cancellation(
   ompd_address_space_context_t *context = addr_handle->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
   ompd_rc_t ret;
 
-  assert(callbacks && "Callback table not initialized!");
   int omp_cancellation;
   ret = TValue(context, "__kmp_omp_cancellation")
             .castBase("__kmp_omp_cancellation")
@@ -225,9 +263,11 @@ static ompd_rc_t ompd_get_max_task_priority(
   ompd_address_space_context_t *context = addr_handle->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
   ompd_rc_t ret;
 
-  assert(callbacks && "Callback table not initialized!");
   int max_task_priority;
   ret = TValue(context, "__kmp_max_task_priority")
             .castBase("__kmp_max_task_priority")
@@ -243,9 +283,11 @@ static ompd_rc_t ompd_get_debug(
   ompd_address_space_context_t *context = addr_handle->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
   ompd_rc_t ret;
 
-  assert(callbacks && "Callback table not initialized!");
   uint64_t ompd_state_val;
   ret = TValue(context, "ompd_state")
             .castBase("ompd_state")
@@ -272,8 +314,9 @@ static ompd_rc_t ompd_get_nthreads_aux(
   ompd_address_space_context_t *context = thread_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-  if (!callbacks)
-    return ompd_rc_error;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret = TValue(context, "__kmp_nested_nth")
            .cast("kmp_nested_nthreads_t")
@@ -332,10 +375,10 @@ static ompd_rc_t ompd_get_nthreads(
   *nthreads_var_val = nproc;
   /* If the nthreads-var is a list with more than one element, then the value of
      this ICV cannot be represented by an integer type. In this case,
-     ompd_rc_incompatible is returned. The tool can check the return value and
+     ompd_rc_incomplete is returned. The tool can check the return value and
      can choose to invoke ompd_get_icv_string_from_scope() if needed. */
   if (current_nesting_level < used - 1) {
-    return ompd_rc_incompatible;
+    return ompd_rc_incomplete;
   }
   return ompd_rc_ok;
 }
@@ -419,7 +462,7 @@ static ompd_rc_t ompd_get_display_affinity(
   ompd_rc_t ret;
 
   if (!callbacks) {
-    return ompd_rc_error;
+    return ompd_rc_callback_error;
   }
   ret = TValue(context, "__kmp_display_affinity")
             .castBase("__kmp_display_affinity")
@@ -436,7 +479,7 @@ static ompd_rc_t ompd_get_affinity_format(
     return ompd_rc_stale_handle;
 
   if (!callbacks) {
-    return ompd_rc_error;
+    return ompd_rc_callback_error;
   }
   ompd_rc_t ret;
   ret = TValue(context, "__kmp_affinity_format")
@@ -454,7 +497,7 @@ static ompd_rc_t ompd_get_tool_libraries(
     return ompd_rc_stale_handle;
 
   if (!callbacks) {
-    return ompd_rc_error;
+    return ompd_rc_callback_error;
   }
   ompd_rc_t ret;
   ret = TValue(context, "__kmp_tool_libraries")
@@ -478,7 +521,7 @@ static ompd_rc_t ompd_get_default_device(
   if (!context)
     return ompd_rc_stale_handle;
   if (!callbacks)
-    return ompd_rc_error;
+    return ompd_rc_callback_error;
 
   ompd_rc_t ret =
       TValue(context, thread_handle->th) /*__kmp_threads[t]->th*/
@@ -501,14 +544,35 @@ static ompd_rc_t ompd_get_tool(
   ompd_address_space_context_t *context = addr_handle->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
   ompd_rc_t ret;
 
-  if (!callbacks) {
-    return ompd_rc_error;
-  }
   ret = TValue(context, "__kmp_tool")
             .castBase("__kmp_tool")
             .getValue(*tool_val);
+  return ret;
+}
+
+static ompd_rc_t ompd_get_tool_verbose_init(
+    ompd_address_space_handle_t *addr_handle, /* IN: address space handle*/
+    const char **tool_verbose_init_string     /* OUT: tool verbose init string */
+    ) {
+  ompd_address_space_context_t *context = addr_handle->context;
+  if (!context)
+    return ompd_rc_stale_handle;
+
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
+  ompd_rc_t ret;
+  ret = TValue(context, "__kmp_tool_verbose_init")
+            .cast("char", 1)
+            .getString(tool_verbose_init_string);
+  if (ret == ompd_rc_unsupported) {
+    ret = create_empty_string(tool_verbose_init_string);
+  }
   return ret;
 }
 
@@ -522,7 +586,9 @@ static ompd_rc_t ompd_get_level(
   if (!context)
     return ompd_rc_stale_handle;
 
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   uint32_t res;
 
@@ -544,8 +610,9 @@ static ompd_rc_t ompd_get_level_cuda(
   ompd_address_space_context_t *context = parallel_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   uint16_t res;
   ompd_rc_t ret = TValue(context, parallel_handle->th)
@@ -568,8 +635,9 @@ static ompd_rc_t ompd_get_active_level(
   ompd_address_space_context_t *context = parallel_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   uint32_t res;
 
@@ -590,12 +658,11 @@ ompd_get_num_procs(ompd_address_space_handle_t
   ompd_address_space_context_t *context = addr_handle->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
+
   ompd_rc_t ret;
-
-  if (!context)
-    return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
 
   int nth;
   ret = TValue(context, "__kmp_avail_proc")
@@ -615,8 +682,9 @@ ompd_get_thread_limit(
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret =
       TValue(context, task_handle->th)
@@ -642,8 +710,9 @@ static ompd_rc_t ompd_get_thread_num(
   ompd_address_space_context_t *context = thread_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret =
       TValue(context, thread_handle->th) /*__kmp_threads[t]->th*/
@@ -667,14 +736,15 @@ ompd_in_final(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret = TValue(context, task_handle->th)
                       .cast("kmp_taskdata_t") // td
-                      .access("td_flags")     // td->td_icvs
+                      .access("td_flags")     // td->td_flags
                       .cast("kmp_tasking_flags_t")
-                      .check("final", val); // td->td_icvs.max_active_levels
+                      .check("final", val); // td->td_flags.tasktype
 
   return ret;
 }
@@ -689,8 +759,9 @@ ompd_get_max_active_levels(
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret =
       TValue(context, task_handle->th)
@@ -705,17 +776,20 @@ ompd_get_max_active_levels(
 }
 
 static ompd_rc_t
-ompd_get_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
-                  ompd_word_t *kind,    /* OUT: Kind of OpenMP schedule*/
-                  ompd_word_t *modifier /* OUT: Schedunling modifier */
+ompd_get_run_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
+                      const char **run_sched_string /* OUT: Run Schedule String
+                                                       consisting of kind and modifier */
                   ) {
   if (!task_handle->ah)
     return ompd_rc_stale_handle;
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
-  assert(callbacks && "Callback table not initialized!");
+  int kind;
 
   TValue sched = TValue(context, task_handle->th)
                      .cast("kmp_taskdata_t") // td
@@ -727,37 +801,223 @@ ompd_get_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   ompd_rc_t ret = sched
                       .access("r_sched_type") // td->td_icvs.sched.r_sched_type
                       .castBase()
-                      .getValue(*kind);
-  if (ret != ompd_rc_ok)
+                      .getValue(kind);
+  if (ret != ompd_rc_ok) {
     return ret;
+  }
+  int chunk = 0;
   ret = sched
-            .access("chunk") // td->td_icvs.sched.r_sched_type
-            .castBase()
-            .getValue(*modifier);
+          .access("chunk") // td->td_icvs.sched.chunk
+          .castBase()
+          .getValue(chunk);
+  if (ret != ompd_rc_ok) {
+    return ret;
+  }
+  char *run_sched_var_string;
+  ret = callbacks->alloc_memory(100, (void **) &run_sched_var_string);
+  if (ret != ompd_rc_ok) {
+    return ret;
+  }
+  run_sched_var_string[0] = '\0';
+  if (SCHEDULE_HAS_MONOTONIC(kind)) {
+    strcpy(run_sched_var_string, "monotonic:");
+  } else if (SCHEDULE_HAS_NONMONOTONIC(kind)) {
+    strcpy(run_sched_var_string, "nonmonotonic:");
+  }
+
+  bool static_unchunked = false;
+  switch (SCHEDULE_WITHOUT_MODIFIERS(kind)) {
+    case kmp_sch_static:
+    case kmp_sch_static_greedy:
+    case kmp_sch_static_balanced:
+      static_unchunked = true;
+      strcat(run_sched_var_string, "static");
+      break;
+    case kmp_sch_static_chunked:
+      strcat(run_sched_var_string, "static");
+      break;
+    case kmp_sch_dynamic_chunked:
+      strcat(run_sched_var_string, "dynamic");
+      break;
+    case kmp_sch_guided_chunked:
+    case kmp_sch_guided_iterative_chunked:
+    case kmp_sch_guided_analytical_chunked:
+      strcat(run_sched_var_string, "guided");
+      break;
+    case kmp_sch_auto:
+      strcat(run_sched_var_string, "auto");
+      break;
+    case kmp_sch_trapezoidal:
+      strcat(run_sched_var_string, "trapezoidal");
+      break;
+    case kmp_sch_static_steal:
+      strcat(run_sched_var_string, "static_steal");
+      break;
+    default:
+      ret = callbacks->free_memory((void *)(run_sched_var_string));
+      if (ret != ompd_rc_ok) {
+        return ret;
+      }
+      ret = create_empty_string(run_sched_string);
+      return ret;
+  }
+
+  if (static_unchunked == true){
+    // To be in sync with what OMPT returns.
+    // Chunk was not set. Shown with a zero value.
+    chunk = 0;
+  }
+
+  char temp_str[16];
+  sprintf(temp_str, ",%d", chunk);
+  strcat (run_sched_var_string, temp_str);
+  *run_sched_string = run_sched_var_string;
   return ret;
 }
 
-static ompd_rc_t
-ompd_get_proc_bind(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
-                   ompd_word_t *bind /* OUT: Kind of proc-binding */
-                   ) {
+/* Helper routine for the ompd_get_proc_bind routines */
+static ompd_rc_t ompd_get_proc_bind_aux(
+    ompd_task_handle_t *task_handle,
+    uint32_t *used,
+    uint32_t *current_nesting_level,
+    uint32_t *proc_bind
+    ) {
   if (!task_handle->ah)
     return ompd_rc_stale_handle;
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
-  assert(callbacks && "Callback table not initialized!");
+  ompd_rc_t ret = TValue(context, "__kmp_nested_proc_bind")
+           .cast("kmp_nested_proc_bind_t")
+           .access("used")
+           .castBase(ompd_type_int)
+           .getValue(*used);
+  if (ret != ompd_rc_ok)
+    return ret;
 
-  ompd_rc_t ret = TValue(context, task_handle->th)
-                      .cast("kmp_taskdata_t") // td
-                      .access("td_icvs")      // td->td_icvs
-                      .cast("kmp_internal_control_t", 0)
-                      .access("proc_bind") // td->td_icvs.proc_bind
-                      .castBase()
-                      .getValue(*bind);
+  TValue taskdata =
+      TValue(context, task_handle->th) /* td */
+          .cast("kmp_taskdata_t");
 
+  ret = taskdata
+          .access("td_team") /* td->td_team*/
+          .cast("kmp_team_p", 1)
+          .access("t") /* td->td_team->t*/
+          .cast("kmp_base_team_t", 0) /*t*/
+          .access("t_level")          /*t.t_level*/
+          .castBase(ompd_type_int)
+          .getValue(*current_nesting_level);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  ret = taskdata
+          .access("td_icvs") /* td->td_icvs */
+          .cast("kmp_internal_control_t", 0)
+          .access("proc_bind") /* td->td_icvs.proc_bind */
+          .castBase()
+          .getValue(*proc_bind);
   return ret;
+}
+
+static ompd_rc_t
+ompd_get_proc_bind(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle */
+                   ompd_word_t *bind                /* OUT: Kind of proc-binding */
+                   ) {
+  uint32_t used;
+  uint32_t proc_bind;
+  uint32_t current_nesting_level;
+
+  ompd_rc_t ret;
+  ret = ompd_get_proc_bind_aux (task_handle, &used,
+                                &current_nesting_level, &proc_bind);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  /* td->td_icvs.proc_bind */
+  *bind = proc_bind;
+  /* If bind-var is a list with more than one element, then the value of
+     this ICV cannot be represented by an integer type. In this case,
+     ompd_rc_incomplete is returned. The tool can check the return value and
+     can choose to invoke ompd_get_icv_string_from_scope() if needed. */
+  if (current_nesting_level < used - 1) {
+    return ompd_rc_incomplete;
+  }
+  return ompd_rc_ok;
+}
+
+
+static ompd_rc_t
+ompd_get_proc_bind(
+    ompd_task_handle_t *task_handle,     /* IN: OpenMP task handle */
+    const char **proc_bind_list_string   /* OUT: string list of comma separated
+                                            bind-var values */
+    ) {
+  uint32_t used;
+  uint32_t proc_bind;
+  uint32_t current_nesting_level;
+
+  ompd_rc_t ret;
+  ret = ompd_get_proc_bind_aux (task_handle, &used,
+                                &current_nesting_level, &proc_bind);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  uint32_t num_list_elems;
+  if (used == 0 || current_nesting_level >= used) {
+    num_list_elems = 1;
+  } else {
+    num_list_elems = used - current_nesting_level;
+  }
+  size_t buffer_size =
+    16 /* digits per element including the comma separator */
+      * num_list_elems + 1; /* string terminator NULL */
+  char *proc_bind_list_str;
+  ret = callbacks->alloc_memory(buffer_size, (void **)&proc_bind_list_str);
+  if (ret != ompd_rc_ok)
+    return ret;
+
+  /* The bind-var list would be:
+  [td->td_icvs.proc_bind,
+   __kmp_nested_proc_bind.bind_types[current_nesting_level + 1],
+   __kmp_nested_proc_bind.bind_types[current_nesting_level + 2],
+    …,
+   __kmp_nested_proc_bind.bind_types[used - 1]]*/
+
+  sprintf(proc_bind_list_str, "%d", proc_bind);
+  *proc_bind_list_string = proc_bind_list_str;
+  if (num_list_elems == 1) {
+    return ompd_rc_ok;
+  }
+
+  char temp_value[16];
+  uint32_t bind_types_value;
+
+  for (current_nesting_level++; /* the list element for this nesting
+                                 * level has already been accounted for
+                                   by proc_bind */
+       current_nesting_level < used;
+       current_nesting_level++) {
+
+    ret = TValue(task_handle->ah->context, "__kmp_nested_proc_bind")
+             .cast("kmp_nested_proc_bind_t")
+             .access("bind_types")
+             .cast("int", 1)
+             .getArrayElement(current_nesting_level)
+             .castBase(ompd_type_int)
+             .getValue(bind_types_value);
+
+    if (ret != ompd_rc_ok)
+      return ret;
+
+    sprintf(temp_value, ",%d", bind_types_value);
+    strcat (proc_bind_list_str, temp_value);
+  }
+
+  return ompd_rc_ok;
 }
 
 
@@ -772,8 +1032,9 @@ ompd_is_implicit(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret = TValue(context, task_handle->th)
                       .cast("kmp_taskdata_t") // td
@@ -784,7 +1045,7 @@ ompd_is_implicit(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   return ret;
 } 
 
-static ompd_rc_t
+ompd_rc_t
 ompd_get_num_threads(ompd_parallel_handle_t
                         *parallel_handle, /* IN: OpenMP parallel handle */
                      ompd_word_t *val     /* OUT: number of threads */
@@ -794,8 +1055,9 @@ ompd_get_num_threads(ompd_parallel_handle_t
   ompd_address_space_context_t *context = parallel_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   ompd_rc_t ret = ompd_rc_ok;
   if (parallel_handle->lwt.address != 0) {
@@ -820,8 +1082,9 @@ ompd_get_num_threads_cuda(ompd_parallel_handle_t *parallel_handle,
   ompd_address_space_context_t *context = parallel_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   uint16_t res;
 
@@ -875,6 +1138,8 @@ ompd_rc_t ompd_get_icv_from_scope(void *handle, ompd_scope_t scope,
     switch (icv_id) {
       case ompd_icv_dyn_var:
         return ompd_get_dynamic((ompd_thread_handle_t *)handle, icv_value);
+      case ompd_icv_run_sched_var:
+        return ompd_rc_incompatible;
       case ompd_icv_stacksize_var:
         return ompd_get_stacksize((ompd_address_space_handle_t *)handle, icv_value);
       case ompd_icv_cancel_var:
@@ -895,6 +1160,8 @@ ompd_rc_t ompd_get_icv_from_scope(void *handle, ompd_scope_t scope,
         return ompd_get_default_device((ompd_thread_handle_t *)handle, icv_value);
       case ompd_icv_tool_var:
         return ompd_get_tool((ompd_address_space_handle_t *)handle, icv_value);
+      case ompd_icv_tool_verbose_init_var:
+        return ompd_rc_incompatible;
       case ompd_icv_levels_var:
         return ompd_get_level((ompd_parallel_handle_t *)handle, icv_value);
       case ompd_icv_active_levels_var:
@@ -906,14 +1173,21 @@ ompd_rc_t ompd_get_icv_from_scope(void *handle, ompd_scope_t scope,
       case ompd_icv_bind_var:
         return ompd_get_proc_bind((ompd_task_handle_t*)handle, icv_value);
       case ompd_icv_num_procs_var:
+      case ompd_icv_ompd_num_procs_var:
         return ompd_get_num_procs((ompd_address_space_handle_t*)handle, icv_value);
       case ompd_icv_thread_num_var:
+      case ompd_icv_ompd_thread_num_var:
         return ompd_get_thread_num((ompd_thread_handle_t*)handle, icv_value);
       case ompd_icv_final_var:
+      case ompd_icv_ompd_final_var:
+      case ompd_icv_ompd_final_task_var:
         return ompd_in_final((ompd_task_handle_t*)handle, icv_value);
       case ompd_icv_implicit_var:
+      case ompd_icv_ompd_implicit_var:
+      case ompd_icv_ompd_implicit_task_var:
         return ompd_is_implicit((ompd_task_handle_t*)handle, icv_value);
       case ompd_icv_team_size_var:
+      case ompd_icv_ompd_team_size_var:
         return ompd_get_num_threads((ompd_parallel_handle_t*)handle, icv_value);
       default:
         return ompd_rc_unsupported;
@@ -966,13 +1240,20 @@ ompd_get_icv_string_from_scope(void *handle, ompd_scope_t scope,
 
   if (device_kind == OMPD_DEVICE_KIND_HOST) {
     switch (icv_id) {
+      case ompd_icv_run_sched_var:
+        return ompd_get_run_schedule((ompd_task_handle_t *)handle, icv_string);
       case ompd_icv_nthreads_var:
         return ompd_get_nthreads((ompd_thread_handle_t *)handle, icv_string);
+      case ompd_icv_bind_var:
+        return ompd_get_proc_bind((ompd_task_handle_t *)handle, icv_string);
       case ompd_icv_affinity_format_var:
         return ompd_get_affinity_format((ompd_address_space_handle_t *)handle,
              icv_string);
       case ompd_icv_tool_libraries_var:
         return ompd_get_tool_libraries((ompd_address_space_handle_t *)handle,
+             icv_string);
+      case ompd_icv_tool_verbose_init_var:
+        return ompd_get_tool_verbose_init((ompd_address_space_handle_t *)handle,
              icv_string);
       default:
         return ompd_rc_unsupported;
@@ -1009,8 +1290,10 @@ ompd_rc_t ompd_get_task_data (ompd_task_handle_t *task_handle,
   ompd_address_space_context_t *context = task_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
-  assert(callbacks && "Callback table not initialized!");
   TValue dataValue;
   if (task_handle->lwt.address) {
     dataValue = TValue(context, task_handle->lwt)
@@ -1037,8 +1320,9 @@ ompd_rc_t ompd_get_parallel_data (ompd_parallel_handle_t *parallel_handle,
   ompd_address_space_context_t *context = parallel_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   TValue dataValue;
   if (parallel_handle->lwt.address) {
@@ -1065,8 +1349,9 @@ ompd_rc_t ompd_get_thread_data (ompd_thread_handle_t *thread_handle,
   ompd_address_space_context_t *context = thread_handle->ah->context;
   if (!context)
     return ompd_rc_stale_handle;
-
-  assert(callbacks && "Callback table not initialized!");
+  if (!callbacks) {
+    return ompd_rc_callback_error;
+  }
 
   TValue dataValue = TValue(context, thread_handle->th)
               .cast("kmp_base_info_t")   /*th*/

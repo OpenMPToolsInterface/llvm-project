@@ -1,6 +1,18 @@
+/*
+ * ompd-specific.cpp -- OpenMP debug support
+ */
+
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include "ompd-specific.h"
 
-#ifdef OMPD_SUPPORT
+#if OMPD_SUPPORT
 
 /**
  * Declaration of symbols to hold struct size and member offset information
@@ -87,17 +99,6 @@ void ompd_init()
   ompd_dll_locations_valid ();
 
 }
-
-/*void omp_ompd_enable ( void )
-{
-    fprintf(stderr,
-                "OMP_OMPD active\n");
-    ompt_enabled.enabled = 1;
-    ompd_state |= OMPD_ENABLE_BP;
-#ifdef OMPD_SUPPORT
-    ompt_post_init();
-#endif
-}*/
 
 void __attribute__((noinline)) ompd_dll_locations_valid ( void ){
   /* naive way of implementing hard to opt-out empty function 

@@ -792,14 +792,12 @@ bool InMemoryFileSystem::addFile(const Twine &P, time_t ModificationTime,
 }
 
 bool InMemoryFileSystem::addFileNoOwn(const Twine &P, time_t ModificationTime,
-                                      llvm::MemoryBuffer *Buffer,
+                                      const llvm::MemoryBufferRef &Buffer,
                                       Optional<uint32_t> User,
                                       Optional<uint32_t> Group,
                                       Optional<llvm::sys::fs::file_type> Type,
                                       Optional<llvm::sys::fs::perms> Perms) {
-  return addFile(P, ModificationTime,
-                 llvm::MemoryBuffer::getMemBuffer(
-                     Buffer->getBuffer(), Buffer->getBufferIdentifier()),
+  return addFile(P, ModificationTime, llvm::MemoryBuffer::getMemBuffer(Buffer),
                  std::move(User), std::move(Group), std::move(Type),
                  std::move(Perms));
 }
@@ -1157,6 +1155,17 @@ void RedirectingFileSystem::setExternalContentsPrefixDir(StringRef PrefixDir) {
 
 StringRef RedirectingFileSystem::getExternalContentsPrefixDir() const {
   return ExternalContentsPrefixDir;
+}
+
+void RedirectingFileSystem::setFallthrough(bool Fallthrough) {
+  IsFallthrough = Fallthrough;
+}
+
+std::vector<StringRef> RedirectingFileSystem::getRoots() const {
+  std::vector<StringRef> R;
+  for (const auto &Root : Roots)
+    R.push_back(Root->getName());
+  return R;
 }
 
 void RedirectingFileSystem::dump(raw_ostream &OS) const {

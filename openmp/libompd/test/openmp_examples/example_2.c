@@ -1,4 +1,5 @@
-// RUN: %gdb-compile-and-run 2>&1 | tee %t.out | FileCheck %s
+// RUN: %gdb-compile 2>&1 | tee %t.compile
+// RUN: env OMP_SCHEDULE=static,5 %gdb-run 2>&1 | tee %t.out | FileCheck %s
 
 #include <stdio.h>
 #include <unistd.h>
@@ -11,7 +12,7 @@ int main()
   printf("Application: Process %d started.\n", getpid());
   
   omp_set_num_threads(3);
-  omp_set_nested(1); // 1:enables nested parall.; 0:disables nested parall.
+  omp_set_max_active_levels(10);
 
   #pragma omp parallel // parallel region begins
   {
@@ -25,7 +26,7 @@ int main()
       {
         int i;
         #pragma omp for
-        for(i=0; i<2; i++)
+        for(i=0; i<10; i++)
           ompd_tool_test(0);
       }
     }

@@ -19,12 +19,14 @@ def s16imm64 : Operand<i64> {
   let EncoderMethod = "getImm16Encoding";
   let ParserMatchClass = PPCS16ImmAsmOperand;
   let DecoderMethod = "decodeSImmOperand<16>";
+  let OperandType = "OPERAND_IMMEDIATE";
 }
 def u16imm64 : Operand<i64> {
   let PrintMethod = "printU16ImmOperand";
   let EncoderMethod = "getImm16Encoding";
   let ParserMatchClass = PPCU16ImmAsmOperand;
   let DecoderMethod = "decodeUImmOperand<16>";
+  let OperandType = "OPERAND_IMMEDIATE";
 }
 def s17imm64 : Operand<i64> {
   // This operand type is used for addis/lis to allow the assembler parser
@@ -34,6 +36,7 @@ def s17imm64 : Operand<i64> {
   let EncoderMethod = "getImm16Encoding";
   let ParserMatchClass = PPCS17ImmAsmOperand;
   let DecoderMethod = "decodeSImmOperand<16>";
+  let OperandType = "OPERAND_IMMEDIATE";
 }
 def tocentry : Operand<iPTR> {
   let MIOperandInfo = (ops i64imm:$imm);
@@ -148,6 +151,9 @@ let isCall = 1, PPC970_Unit = 7, Defs = [LR8] in {
       def BL8_NOTOC : IForm<18, 0, 1, (outs),
                             (ins calltarget:$func),
                             "bl $func", IIC_BrB, []>;
+      def BL8_NOTOC_TLS : IForm<18, 0, 1, (outs),
+                                (ins tlscall:$func),
+                                "bl $func", IIC_BrB, []>;
     }
   }
   let Uses = [CTR8, RM] in {
@@ -1026,8 +1032,8 @@ def : InstAlias<"mfamr $Rx", (MFSPR8 g8rc:$Rx, 29)>;
 foreach SPRG = 0-3 in {
   def : InstAlias<"mfsprg $RT, "#SPRG, (MFSPR8 g8rc:$RT, !add(SPRG, 272))>;
   def : InstAlias<"mfsprg"#SPRG#" $RT", (MFSPR8 g8rc:$RT, !add(SPRG, 272))>;
-  def : InstAlias<"mfsprg "#SPRG#", $RT", (MTSPR8 !add(SPRG, 272), g8rc:$RT)>;
-  def : InstAlias<"mfsprg"#SPRG#" $RT", (MTSPR8 !add(SPRG, 272), g8rc:$RT)>;
+  def : InstAlias<"mtsprg "#SPRG#", $RT", (MTSPR8 !add(SPRG, 272), g8rc:$RT)>;
+  def : InstAlias<"mtsprg"#SPRG#" $RT", (MTSPR8 !add(SPRG, 272), g8rc:$RT)>;
 }
 
 def : InstAlias<"mfasr $RT", (MFSPR8 g8rc:$RT, 280)>;
@@ -1262,17 +1268,36 @@ def ADDItlsgdL : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc_nox0:$reg, s16imm6
                        [(set i64:$rD,
                          (PPCaddiTlsgdL i64:$reg, tglobaltlsaddr:$disp))]>,
                  isPPC64;
-// LR8 is a true define, while the rest of the Defs are clobbers.  X3 is
+
+class GETtlsADDRPseudo <string asmstr> : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc:$reg, tlsgd:$sym),
+                                             asmstr,
+                                             [(set i64:$rD,
+                                               (PPCgetTlsAddr i64:$reg, tglobaltlsaddr:$sym))]>,
+                                      isPPC64;
+class GETtlsldADDRPseudo <string asmstr> : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc:$reg, tlsgd:$sym),
+                                             asmstr,
+                                             [(set i64:$rD,
+                                               (PPCgetTlsldAddr i64:$reg, tglobaltlsaddr:$sym))]>,
+                                      isPPC64;
+
+let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1 in {
+// LR8 is a true define, while the rest of the Defs are clobbers. X3 is
 // explicitly defined when this op is created, so not mentioned here.
 // This is lowered to BL8_NOP_TLS by the assembly printer, so the size must be
 // correct because the branch select pass is relying on it.
-let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1, Size = 8,
-    Defs = [X0,X4,X5,X6,X7,X8,X9,X10,X11,X12,LR8,CTR8,CR0,CR1,CR5,CR6,CR7] in
-def GETtlsADDR : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc:$reg, tlsgd:$sym),
-                        "#GETtlsADDR",
-                        [(set i64:$rD,
-                          (PPCgetTlsAddr i64:$reg, tglobaltlsaddr:$sym))]>,
-                 isPPC64;
+let Defs = [X0,X4,X5,X6,X7,X8,X9,X10,X11,X12,LR8,CTR8,CR0,CR1,CR5,CR6,CR7], Size = 8 in
+def GETtlsADDR : GETtlsADDRPseudo <"#GETtlsADDR">;
+let Defs = [X0,X2,X4,X5,X6,X7,X8,X9,X10,X11,X12,LR8,CTR8,CR0,CR1,CR5,CR6,CR7], Size = 8 in
+def GETtlsADDRPCREL : GETtlsADDRPseudo <"#GETtlsADDRPCREL">;
+
+// LR8 is a true define, while the rest of the Defs are clobbers. X3 is
+// explicitly defined when this op is created, so not mentioned here.
+let Defs = [X0,X4,X5,X6,X7,X8,X9,X10,X11,X12,LR8,CTR8,CR0,CR1,CR5,CR6,CR7] in
+def GETtlsldADDR : GETtlsldADDRPseudo <"#GETtlsldADDR">;
+let Defs = [X0,X2,X4,X5,X6,X7,X8,X9,X10,X11,X12,LR8,CTR8,CR0,CR1,CR5,CR6,CR7] in
+def GETtlsldADDRPCREL : GETtlsldADDRPseudo <"#GETtlsldADDRPCREL">;
+}
+
 // Combined op for ADDItlsgdL and GETtlsADDR, late expanded.  X3 and LR8
 // are true defines while the rest of the Defs are clobbers.
 let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1,
@@ -1296,15 +1321,6 @@ def ADDItlsldL : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc_nox0:$reg, s16imm6
                        [(set i64:$rD,
                          (PPCaddiTlsldL i64:$reg, tglobaltlsaddr:$disp))]>,
                  isPPC64;
-// LR8 is a true define, while the rest of the Defs are clobbers.  X3 is
-// explicitly defined when this op is created, so not mentioned here.
-let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1,
-    Defs = [X0,X4,X5,X6,X7,X8,X9,X10,X11,X12,LR8,CTR8,CR0,CR1,CR5,CR6,CR7] in
-def GETtlsldADDR : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc:$reg, tlsgd:$sym),
-                          "#GETtlsldADDR",
-                          [(set i64:$rD,
-                            (PPCgetTlsldAddr i64:$reg, tglobaltlsaddr:$sym))]>,
-                   isPPC64;
 // Combined op for ADDItlsldL and GETtlsADDR, late expanded.  X3 and LR8
 // are true defines, while the rest of the Defs are clobbers.
 let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1,
@@ -1328,6 +1344,11 @@ def ADDIdtprelL : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc_nox0:$reg, s16imm
                          "#ADDIdtprelL",
                          [(set i64:$rD,
                            (PPCaddiDtprelL i64:$reg, tglobaltlsaddr:$disp))]>,
+                  isPPC64;
+def PADDIdtprel : PPCEmitTimePseudo<(outs g8rc:$rD), (ins g8rc_nox0:$reg, s16imm64:$disp),
+                          "#PADDIdtprel",
+                          [(set i64:$rD,
+                            (PPCpaddiDtprel i64:$reg, tglobaltlsaddr:$disp))]>,
                   isPPC64;
 
 let PPC970_Unit = 2 in {
@@ -1444,11 +1465,11 @@ def : Pat<(pre_store i64:$rS, iPTR:$ptrreg, iPTR:$ptroff),
 //
 
 
-let PPC970_Unit = 3, hasSideEffects = 0,
+let PPC970_Unit = 3, hasSideEffects = 0, mayRaiseFPException = 1,
     Uses = [RM] in {  // FPU Operations.
 defm FCFID  : XForm_26r<63, 846, (outs f8rc:$frD), (ins f8rc:$frB),
                         "fcfid", "$frD, $frB", IIC_FPGeneral,
-                        [(set f64:$frD, (PPCfcfid f64:$frB))]>, isPPC64;
+                        [(set f64:$frD, (PPCany_fcfid f64:$frB))]>, isPPC64;
 defm FCTID  : XForm_26r<63, 814, (outs f8rc:$frD), (ins f8rc:$frB),
                         "fctid", "$frD, $frB", IIC_FPGeneral,
                         []>, isPPC64;
@@ -1457,23 +1478,23 @@ defm FCTIDU : XForm_26r<63, 942, (outs f8rc:$frD), (ins f8rc:$frB),
                         []>, isPPC64;
 defm FCTIDZ : XForm_26r<63, 815, (outs f8rc:$frD), (ins f8rc:$frB),
                         "fctidz", "$frD, $frB", IIC_FPGeneral,
-                        [(set f64:$frD, (PPCfctidz f64:$frB))]>, isPPC64;
+                        [(set f64:$frD, (PPCany_fctidz f64:$frB))]>, isPPC64;
 
 defm FCFIDU  : XForm_26r<63, 974, (outs f8rc:$frD), (ins f8rc:$frB),
                         "fcfidu", "$frD, $frB", IIC_FPGeneral,
-                        [(set f64:$frD, (PPCfcfidu f64:$frB))]>, isPPC64;
+                        [(set f64:$frD, (PPCany_fcfidu f64:$frB))]>, isPPC64;
 defm FCFIDS  : XForm_26r<59, 846, (outs f4rc:$frD), (ins f8rc:$frB),
                         "fcfids", "$frD, $frB", IIC_FPGeneral,
-                        [(set f32:$frD, (PPCfcfids f64:$frB))]>, isPPC64;
+                        [(set f32:$frD, (PPCany_fcfids f64:$frB))]>, isPPC64;
 defm FCFIDUS : XForm_26r<59, 974, (outs f4rc:$frD), (ins f8rc:$frB),
                         "fcfidus", "$frD, $frB", IIC_FPGeneral,
-                        [(set f32:$frD, (PPCfcfidus f64:$frB))]>, isPPC64;
+                        [(set f32:$frD, (PPCany_fcfidus f64:$frB))]>, isPPC64;
 defm FCTIDUZ : XForm_26r<63, 943, (outs f8rc:$frD), (ins f8rc:$frB),
                         "fctiduz", "$frD, $frB", IIC_FPGeneral,
-                        [(set f64:$frD, (PPCfctiduz f64:$frB))]>, isPPC64;
+                        [(set f64:$frD, (PPCany_fctiduz f64:$frB))]>, isPPC64;
 defm FCTIWUZ : XForm_26r<63, 143, (outs f8rc:$frD), (ins f8rc:$frB),
                         "fctiwuz", "$frD, $frB", IIC_FPGeneral,
-                        [(set f64:$frD, (PPCfctiwuz f64:$frB))]>, isPPC64;
+                        [(set f64:$frD, (PPCany_fctiwuz f64:$frB))]>, isPPC64;
 }
 
 

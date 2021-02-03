@@ -12,10 +12,9 @@
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Function.h"
 #include "mlir/IR/Matchers.h"
-#include "mlir/IR/Module.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -1552,11 +1551,8 @@ fir::GlobalOp fir::createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
   return modBuilder.create<fir::GlobalOp>(loc, name, type, attrs);
 }
 
-namespace fir {
-
 // Tablegen operators
 
 #define GET_OP_CLASSES
 #include "flang/Optimizer/Dialect/FIROps.cpp.inc"
 
-} // namespace fir

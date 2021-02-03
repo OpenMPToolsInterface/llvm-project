@@ -1,14 +1,23 @@
 /*
-* @@name:   ompd_types.h
+* @@name:   ompd-types.h
 */
-#ifndef __OPMD_TYPES_H
-#define __OPMD_TYPES_H
+
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef __OMPD_TYPES_H
+#define __OMPD_TYPES_H
 
 extern "C" {
 #include "omp-tools.h"
 }
 
-#define OMPD_TYPES_VERSION   20170927 /* YYYYMMDD Format */
+#define OMPD_TYPES_VERSION   20180906 /* YYYYMMDD Format */
 
 /* Kinds of device threads  */
 #define OMPD_THREAD_ID_PTHREAD      ((ompd_thread_id_t)0)

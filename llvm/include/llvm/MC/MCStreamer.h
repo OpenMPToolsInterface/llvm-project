@@ -13,6 +13,7 @@
 #ifndef LLVM_MC_MCSTREAMER_H
 #define LLVM_MC_MCSTREAMER_H
 
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
@@ -205,6 +206,7 @@ class MCStreamer {
   std::vector<std::unique_ptr<WinEH::FrameInfo>> WinFrameInfos;
 
   WinEH::FrameInfo *CurrentWinFrameInfo;
+  size_t CurrentProcWinFrameInfoStartIndex;
 
   /// Tracks an index to represent the order a symbol was emitted in.
   /// Zero means we did not emit that symbol.
@@ -213,6 +215,10 @@ class MCStreamer {
   /// This is stack of current and previous section values saved by
   /// PushSection.
   SmallVector<std::pair<MCSectionSubPair, MCSectionSubPair>, 4> SectionStack;
+
+  /// Pointer to the parser's SMLoc if available. This is used to provide
+  /// locations for diagnostics.
+  const SMLoc *StartTokLocPtr = nullptr;
 
   /// The next unique ID to use when creating a WinCFI-related section (.pdata
   /// or .xdata). This ID ensures that we have a one-to-one mapping from
@@ -239,6 +245,8 @@ protected:
     return CurrentWinFrameInfo;
   }
 
+  virtual void EmitWindowsUnwindTables(WinEH::FrameInfo *Frame);
+
   virtual void EmitWindowsUnwindTables();
 
   virtual void emitRawTextImpl(StringRef String);
@@ -256,6 +264,11 @@ public:
 
   void setTargetStreamer(MCTargetStreamer *TS) {
     TargetStreamer.reset(TS);
+  }
+
+  void setStartTokLocPtr(const SMLoc *Loc) { StartTokLocPtr = Loc; }
+  SMLoc getStartTokLoc() const {
+    return StartTokLocPtr ? *StartTokLocPtr : SMLoc();
   }
 
   /// State management
@@ -441,6 +454,10 @@ public:
   /// Each emitted symbol will be tracked in the ordering table,
   /// so we can sort on them later.
   void AssignFragment(MCSymbol *Symbol, MCFragment *Fragment);
+
+  /// Returns the mnemonic for \p MI, if the streamer has access to a
+  /// instruction printer and returns an empty string otherwise.
+  virtual StringRef getMnemonic(MCInst &MI) { return ""; }
 
   /// Emit a label for \p Symbol into the current section.
   ///
@@ -673,6 +690,7 @@ public:
   /// Special case of EmitValue that avoids the client having
   /// to pass in a MCExpr for constant integers.
   virtual void emitIntValue(uint64_t Value, unsigned Size);
+  virtual void emitIntValue(APInt Value);
 
   /// Special case of EmitValue that avoids the client having to pass
   /// in a MCExpr for constant integers & prints in Hex format for certain
@@ -776,6 +794,9 @@ public:
   /// \param Expr - The expression from which \p Size bytes are used.
   virtual void emitFill(const MCExpr &NumValues, int64_t Size, int64_t Expr,
                         SMLoc Loc = SMLoc());
+
+  virtual void emitNops(int64_t NumBytes, int64_t ControlledNopLength,
+                        SMLoc Loc);
 
   /// Emit NumBytes worth of zeros.
   /// This function properly handles data in virtual sections.
@@ -1050,7 +1071,7 @@ public:
   /// Streamer specific finalization.
   virtual void finishImpl();
   /// Finish emission of machine code.
-  void Finish();
+  void Finish(SMLoc EndLoc = SMLoc());
 
   virtual bool mayHaveInstructions(MCSection &Sec) const { return true; }
 };
@@ -1058,28 +1079,6 @@ public:
 /// Create a dummy machine code streamer, which does nothing. This is useful for
 /// timing the assembler front end.
 MCStreamer *createNullStreamer(MCContext &Ctx);
-
-/// Create a machine code streamer which will print out assembly for the native
-/// target, suitable for compiling with a native assembler.
-///
-/// \param InstPrint - If given, the instruction printer to use. If not given
-/// the MCInst representation will be printed.  This method takes ownership of
-/// InstPrint.
-///
-/// \param CE - If given, a code emitter to use to show the instruction
-/// encoding inline with the assembly. This method takes ownership of \p CE.
-///
-/// \param TAB - If given, a target asm backend to use to show the fixup
-/// information in conjunction with encoding information. This method takes
-/// ownership of \p TAB.
-///
-/// \param ShowInst - Whether to show the MCInst representation inline with
-/// the assembly.
-MCStreamer *createAsmStreamer(MCContext &Ctx,
-                              std::unique_ptr<formatted_raw_ostream> OS,
-                              bool isVerboseAsm, bool useDwarfDirectory,
-                              MCInstPrinter *InstPrint, MCCodeEmitter *CE,
-                              MCAsmBackend *TAB, bool ShowInst);
 
 } // end namespace llvm
 
