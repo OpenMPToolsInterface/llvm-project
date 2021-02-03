@@ -47,6 +47,7 @@ class ompd_address_space(object):
 			elif (self.ompd_tool_test_bp is not None and self.ompd_tool_test_bp in event.breakpoints):
 				try:
 					self.compare_ompt_data()
+					gdb.execute('continue')
 				except():
 					traceback.print_exc()
 		elif (isinstance(event, gdb.SignalEvent)):
