@@ -27,6 +27,7 @@ class ompd_address_space(object):
 		self.icv_map = None
 		self.ompd_tool_test_bp = None
 		self.scope_map = {1:'global', 2:'address_space', 3:'thread', 4:'parallel', 5:'implicit_task', 6:'task'}
+		self.sched_map = {1:'static', 2:'dynamic', 3:'guided', 4:'auto'}
 		gdb.events.stop.connect(self.handle_stop_event)
 		self.new_thread_breakpoint = gdb.Breakpoint("ompd_bp_thread_begin", internal=True)
 		tool_break_symbol = gdb.lookup_global_symbol("ompd_tool_break")
@@ -46,6 +47,7 @@ class ompd_address_space(object):
 			elif (self.ompd_tool_test_bp is not None and self.ompd_tool_test_bp in event.breakpoints):
 				try:
 					self.compare_ompt_data()
+					gdb.execute('continue')
 				except():
 					traceback.print_exc()
 		elif (isinstance(event, gdb.SignalEvent)):
@@ -148,7 +150,7 @@ class ompd_address_space(object):
 			if ompt_parallel_data != ompd_value:
 				print('OMPT-OMPD mismatch: value of ompt_parallel_data (%d) does not match that of OMPD data union (%d)!' % (ompt_parallel_data, ompd_value))
 		
-		# compare max threads; NOTE: not in ICV map
+		# compare max threads
 		if 'omp_max_threads' in field_names and 'nthreads-var' in self.icv_map:
 			ompt_max_threads = thread_data['omp_max_threads']
 			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.thread_handle, self.icv_map['nthreads-var'][1], self.icv_map['nthreads-var'][0])
@@ -179,7 +181,7 @@ class ompd_address_space(object):
 			if icv_value != ompt_final:
 				print('OMPT-OMPD mismatch: omp_final (%d) does not match OMPD final according to ICVs (%d)!' % (ompt_final, icv_value))
 		
-		# compare omp_dynamic; TODO: test; not in ICV map
+		# compare omp_dynamic
 		if 'omp_dynamic' in field_names and 'dyn-var' in self.icv_map:
 			ompt_dynamic = thread_data['omp_dynamic']
 			icv_value = ompdModule.call_ompd_get_icv_from_scope(curr_thread.thread_handle, self.icv_map['dyn-var'][1], self.icv_map['dyn-var'][0])
@@ -193,18 +195,24 @@ class ompd_address_space(object):
 			if ompt_max_active_levels != icv_value:
 				print('OMPT-OMPD mismatch: omp_max_active_levels (%d) does not match OMPD max active levels (%d)!' % (ompt_max_active_levels, icv_value))
 		
-		# compare omp_kind; TODO: test; not in ICV map
+                # compare omp_kind: TODO: Add the test for monotonic/nonmonotonic modifier
 		if 'omp_kind' in field_names and 'run-sched-var' in self.icv_map:
 			ompt_sched_kind = thread_data['omp_kind']
 			icv_value = ompdModule.call_ompd_get_icv_string_from_scope(curr_thread.get_current_task_handle(), self.icv_map['run-sched-var'][1], self.icv_map['run-sched-var'][0])
-			if ompt_sched_kind not in icv_value:
-				print('OMPT-OMPD mismatch: omp_kind kind (%s) does not match OMPD schedule kind according to ICVs (%s)!' % (str(ompd_kint_sched_kind), str(icv_value)))
+			ompd_sched_kind = icv_value.split(',')[0]
+			if self.sched_map.get(int(ompt_sched_kind)) != ompd_sched_kind:
+				print('OMPT-OMPD mismatch: omp_kind kind (%s) does not match OMPD schedule kind according to ICVs (%s)!' % (self.sched_map.get(int(ompt_sched_kind)), ompd_sched_kind))
 		
-		# compare omp_modifier; TODO: test; not in ICV map
+		# compare omp_modifier
 		if 'omp_modifier' in field_names and 'run-sched-var' in self.icv_map:
 			ompt_sched_mod = thread_data['omp_modifier']
-			ompd_sched = ompdModule.call_ompd_get_icv_from_scope(curr_thread.get_current_task_handle(), self.icv_map['run-sched-var'][1], self.icv_map['run-sched-var'][0])
-			if ompt_sched_mod != ompd_sched[1]:
+			icv_value = ompdModule.call_ompd_get_icv_string_from_scope(curr_thread.get_current_task_handle(), self.icv_map['run-sched-var'][1], self.icv_map['run-sched-var'][0])
+			token = icv_value.split(',')[1]
+			if token is not None:
+				ompd_sched_mod = int(token)
+			else:
+				ompd_sched_mod = 0
+			if ompt_sched_mod != ompd_sched_mod:
 				print('OMPT-OMPD mismatch: omp_kind modifier does not match OMPD schedule modifier according to ICVs!')
 			
 		# compare omp_proc_bind

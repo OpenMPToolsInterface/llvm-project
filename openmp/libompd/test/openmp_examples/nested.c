@@ -1,4 +1,5 @@
-// RUN: %gdb-compile-and-run 2>&1 | tee %t.out | FileCheck %s
+// RUN: %gdb-compile 2>&1 | tee %t.compile
+// RUN: env OMP_SCHEDULE=guided,10 %gdb-run 2>&1 | tee %t.out | FileCheck %s
 
 #include <stdio.h>
 #include <omp.h>

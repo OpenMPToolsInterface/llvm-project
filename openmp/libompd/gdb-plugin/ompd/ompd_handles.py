@@ -155,9 +155,7 @@ class ompd_thread(object):
 	def get_current_task_handle(self):
 		"""Obtains the task handle for the current task region of the
 		given thread."""
-		if not self.task_handle:
-			self.task_handle = ompdModule.call_ompd_get_curr_task_handle(self.thread_handle)
-		return self.task_handle
+		return ompdModule.call_ompd_get_curr_task_handle(self.thread_handle)
 
 	def get_thread_id(self):
 		"""Obtains the ID for the given thread."""
@@ -167,9 +165,7 @@ class ompd_thread(object):
 
 	def get_current_task(self):
 		"""Returns task object for task handle of the current task region."""
-		if not self.current_task:
-			self.current_task = ompd_task(self.get_current_task_handle())
-		return self.current_task
+		return ompd_task(self.get_current_task_handle())
 	
 	def get_state(self):
 		"""Returns tuple with OMPD state (long) and wait_id, in case the thread is in a 

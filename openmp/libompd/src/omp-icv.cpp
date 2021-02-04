@@ -12,8 +12,10 @@
 
 #include <cstring>
 #include "omp-debug.h"
+#include "omp.h"
 #include "ompd-private.h"
 #include "TargetValue.h"
+#include "kmp.h"
 
 /* The ICVs ompd-final-var and ompd-implicit-var below are for backward
  * compatibility with 5.0.
@@ -21,6 +23,7 @@
 
 #define FOREACH_OMPD_ICV(macro)                                                \
     macro (dyn_var, "dyn-var", ompd_scope_thread, 0)                           \
+    macro (run_sched_var, "run-sched-var", ompd_scope_task, 0)                 \
     macro (stacksize_var, "stacksize-var", ompd_scope_address_space, 0)        \
     macro (cancel_var, "cancel-var", ompd_scope_address_space, 0)              \
     macro (max_task_priority_var, "max-task-priority-var", ompd_scope_address_space, 0)  \
@@ -92,6 +95,7 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
                                           ompd_scope_t *next_scope,
                                           int *more) {
   int next_possible_icv = current;
+  char *new_icv_name;
   ompd_rc_t ret;
   do {
     next_possible_icv++;
@@ -105,11 +109,12 @@ static ompd_rc_t ompd_enumerate_icvs_cuda(ompd_icv_id_t current,
 
   ret = callbacks->alloc_memory(
       std::strlen(ompd_icv_string_values[*next_id]) + 1,
-      (void**) next_icv_name);
+      (void**) &new_icv_name);
   if (ret != ompd_rc_ok) {
     return ret;
   }
-  std::strcpy(const_cast<char*>(*next_icv_name), ompd_icv_string_values[*next_id]);
+  *next_icv_name = new_icv_name;
+  std::strcpy(new_icv_name, ompd_icv_string_values[*next_id]);
 
   *next_scope = ompd_icv_scope_values[*next_id];
 
@@ -771,9 +776,9 @@ ompd_get_max_active_levels(
 }
 
 static ompd_rc_t
-ompd_get_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
-                  ompd_word_t *kind,    /* OUT: Kind of OpenMP schedule*/
-                  ompd_word_t *modifier /* OUT: Schedunling modifier */
+ompd_get_run_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
+                      const char **run_sched_string /* OUT: Run Schedule String
+                                                       consisting of kind and modifier */
                   ) {
   if (!task_handle->ah)
     return ompd_rc_stale_handle;
@@ -783,6 +788,8 @@ ompd_get_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   if (!callbacks) {
     return ompd_rc_callback_error;
   }
+
+  int kind;
 
   TValue sched = TValue(context, task_handle->th)
                      .cast("kmp_taskdata_t") // td
@@ -794,13 +801,77 @@ ompd_get_schedule(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle*/
   ompd_rc_t ret = sched
                       .access("r_sched_type") // td->td_icvs.sched.r_sched_type
                       .castBase()
-                      .getValue(*kind);
-  if (ret != ompd_rc_ok)
+                      .getValue(kind);
+  if (ret != ompd_rc_ok) {
     return ret;
+  }
+  int chunk = 0;
   ret = sched
-            .access("chunk") // td->td_icvs.sched.r_sched_type
-            .castBase()
-            .getValue(*modifier);
+          .access("chunk") // td->td_icvs.sched.chunk
+          .castBase()
+          .getValue(chunk);
+  if (ret != ompd_rc_ok) {
+    return ret;
+  }
+  char *run_sched_var_string;
+  ret = callbacks->alloc_memory(100, (void **) &run_sched_var_string);
+  if (ret != ompd_rc_ok) {
+    return ret;
+  }
+  run_sched_var_string[0] = '\0';
+  if (SCHEDULE_HAS_MONOTONIC(kind)) {
+    strcpy(run_sched_var_string, "monotonic:");
+  } else if (SCHEDULE_HAS_NONMONOTONIC(kind)) {
+    strcpy(run_sched_var_string, "nonmonotonic:");
+  }
+
+  bool static_unchunked = false;
+  switch (SCHEDULE_WITHOUT_MODIFIERS(kind)) {
+    case kmp_sch_static:
+    case kmp_sch_static_greedy:
+    case kmp_sch_static_balanced:
+      static_unchunked = true;
+      strcat(run_sched_var_string, "static");
+      break;
+    case kmp_sch_static_chunked:
+      strcat(run_sched_var_string, "static");
+      break;
+    case kmp_sch_dynamic_chunked:
+      strcat(run_sched_var_string, "dynamic");
+      break;
+    case kmp_sch_guided_chunked:
+    case kmp_sch_guided_iterative_chunked:
+    case kmp_sch_guided_analytical_chunked:
+      strcat(run_sched_var_string, "guided");
+      break;
+    case kmp_sch_auto:
+      strcat(run_sched_var_string, "auto");
+      break;
+    case kmp_sch_trapezoidal:
+      strcat(run_sched_var_string, "trapezoidal");
+      break;
+    case kmp_sch_static_steal:
+      strcat(run_sched_var_string, "static_steal");
+      break;
+    default:
+      ret = callbacks->free_memory((void *)(run_sched_var_string));
+      if (ret != ompd_rc_ok) {
+        return ret;
+      }
+      ret = create_empty_string(run_sched_string);
+      return ret;
+  }
+
+  if (static_unchunked == true){
+    // To be in sync with what OMPT returns.
+    // Chunk was not set. Shown with a zero value.
+    chunk = 0;
+  }
+
+  char temp_str[16];
+  sprintf(temp_str, ",%d", chunk);
+  strcat (run_sched_var_string, temp_str);
+  *run_sched_string = run_sched_var_string;
   return ret;
 }
 
@@ -873,7 +944,7 @@ ompd_get_proc_bind(ompd_task_handle_t *task_handle, /* IN: OpenMP task handle */
      ompd_rc_incomplete is returned. The tool can check the return value and
      can choose to invoke ompd_get_icv_string_from_scope() if needed. */
   if (current_nesting_level < used - 1) {
-    return ompd_rc_incomplete
+    return ompd_rc_incomplete;
   }
   return ompd_rc_ok;
 }
@@ -1067,6 +1138,8 @@ ompd_rc_t ompd_get_icv_from_scope(void *handle, ompd_scope_t scope,
     switch (icv_id) {
       case ompd_icv_dyn_var:
         return ompd_get_dynamic((ompd_thread_handle_t *)handle, icv_value);
+      case ompd_icv_run_sched_var:
+        return ompd_rc_incompatible;
       case ompd_icv_stacksize_var:
         return ompd_get_stacksize((ompd_address_space_handle_t *)handle, icv_value);
       case ompd_icv_cancel_var:
@@ -1167,6 +1240,8 @@ ompd_get_icv_string_from_scope(void *handle, ompd_scope_t scope,
 
   if (device_kind == OMPD_DEVICE_KIND_HOST) {
     switch (icv_id) {
+      case ompd_icv_run_sched_var:
+        return ompd_get_run_schedule((ompd_task_handle_t *)handle, icv_string);
       case ompd_icv_nthreads_var:
         return ompd_get_nthreads((ompd_thread_handle_t *)handle, icv_string);
       case ompd_icv_bind_var:
