@@ -163,6 +163,7 @@ struct Configuration {
   bool fixCortexA53Errata843419;
   bool fixCortexA8;
   bool formatBinary = false;
+  bool fortranCommon;
   bool gcSections;
   bool gdbIndex;
   bool gnuHash = false;
@@ -174,6 +175,7 @@ struct Configuration {
   bool ltoDebugPassManager;
   bool ltoEmitAsm;
   bool ltoNewPassManager;
+  bool ltoPseudoProbeForProfiling;
   bool ltoUniqueBasicBlockSectionNames;
   bool ltoWholeProgramVisibility;
   bool mergeArmExidx;
@@ -213,7 +215,6 @@ struct Configuration {
   bool warnBackrefs;
   std::vector<llvm::GlobPattern> warnBackrefsExclude;
   bool warnCommon;
-  bool warnIfuncTextrel;
   bool warnMissingEntry;
   bool warnSymbolOrdering;
   bool writeAddends;

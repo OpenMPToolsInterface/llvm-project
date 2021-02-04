@@ -120,8 +120,9 @@ public:
         }
 
         IncludeStack.push_back(IncludeLoc);
-        S->DiagnoseNonDefaultPragmaPack(
-            Sema::PragmaPackDiagnoseKind::NonDefaultStateAtInclude, IncludeLoc);
+        S->DiagnoseNonDefaultPragmaAlignPack(
+            Sema::PragmaAlignPackDiagnoseKind::NonDefaultStateAtInclude,
+            IncludeLoc);
       }
       break;
     }
@@ -130,8 +131,8 @@ public:
         if (llvm::timeTraceProfilerEnabled())
           llvm::timeTraceProfilerEnd();
 
-        S->DiagnoseNonDefaultPragmaPack(
-            Sema::PragmaPackDiagnoseKind::ChangedStateAtExit,
+        S->DiagnoseNonDefaultPragmaAlignPack(
+            Sema::PragmaAlignPackDiagnoseKind::ChangedStateAtExit,
             IncludeStack.pop_back_val());
       }
       break;
@@ -157,7 +158,8 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       OriginalLexicalContext(nullptr), MSStructPragmaOn(false),
       MSPointerToMemberRepresentationMethod(
           LangOpts.getMSPointerToMemberRepresentationMethod()),
-      VtorDispStack(LangOpts.getVtorDispMode()), PackStack(0),
+      VtorDispStack(LangOpts.getVtorDispMode()),
+      AlignPackStack(AlignPackInfo(getLangOpts().XLPragmaPack)),
       DataSegStack(nullptr), BSSSegStack(nullptr), ConstSegStack(nullptr),
       CodeSegStack(nullptr), FpPragmaStack(FPOptionsOverride()),
       CurInitSeg(nullptr), VisContext(nullptr),
@@ -236,7 +238,9 @@ void Sema::Initialize() {
     return;
 
   // Initialize predefined 128-bit integer types, if needed.
-  if (Context.getTargetInfo().hasInt128Type()) {
+  if (Context.getTargetInfo().hasInt128Type() ||
+      (Context.getAuxTargetInfo() &&
+       Context.getAuxTargetInfo()->hasInt128Type())) {
     // If either of the 128-bit integer types are unavailable to name lookup,
     // define them now.
     DeclarationName Int128 = &Context.Idents.get("__int128_t");
@@ -293,7 +297,7 @@ void Sema::Initialize() {
   // core features.
   if (getLangOpts().OpenCL) {
     getOpenCLOptions().addSupport(
-        Context.getTargetInfo().getSupportedOpenCLOpts());
+        Context.getTargetInfo().getSupportedOpenCLOpts(), getLangOpts());
     getOpenCLOptions().enableSupportedCore(getLangOpts());
     addImplicitTypedef("sampler_t", Context.OCLSamplerTy);
     addImplicitTypedef("event_t", Context.OCLEventTy);
@@ -370,8 +374,13 @@ void Sema::Initialize() {
   }
 
   if (Context.getTargetInfo().getTriple().isPPC64() &&
-      Context.getTargetInfo().hasFeature("mma")) {
-#define PPC_MMA_VECTOR_TYPE(Name, Id, Size) \
+      Context.getTargetInfo().hasFeature("paired-vector-memops")) {
+    if (Context.getTargetInfo().hasFeature("mma")) {
+#define PPC_VECTOR_MMA_TYPE(Name, Id, Size) \
+      addImplicitTypedef(#Name, Context.Id##Ty);
+#include "clang/Basic/PPCTypes.def"
+    }
+#define PPC_VECTOR_VSX_TYPE(Name, Id, Size) \
     addImplicitTypedef(#Name, Context.Id##Ty);
 #include "clang/Basic/PPCTypes.def"
   }
@@ -388,6 +397,9 @@ void Sema::Initialize() {
 }
 
 Sema::~Sema() {
+  assert(InstantiatingSpecializations.empty() &&
+         "failed to clean up an InstantiatingTemplate?");
+
   if (VisContext) FreeVisContext();
 
   // Kill all the active scopes.
@@ -501,7 +513,8 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
                                                QualType SrcType,
                                                SourceLocation Loc) {
   Optional<NullabilityKind> ExprNullability = SrcType->getNullability(Context);
-  if (!ExprNullability || *ExprNullability != NullabilityKind::Nullable)
+  if (!ExprNullability || (*ExprNullability != NullabilityKind::Nullable &&
+                           *ExprNullability != NullabilityKind::NullableResult))
     return;
 
   Optional<NullabilityKind> TypeNullability = DstType->getNullability(Context);
@@ -522,6 +535,13 @@ void Sema::diagnoseZeroToNullptrConversion(CastKind Kind, const Expr* E) {
   if (Kind != CK_NullToPointer && Kind != CK_NullToMemberPointer)
     return;
   if (E->IgnoreParenImpCasts()->getType()->isNullPtrType())
+    return;
+
+  // Don't diagnose the conversion from a 0 literal to a null pointer argument
+  // in a synthesized call to operator<=>.
+  if (!CodeSynthesisContexts.empty() &&
+      CodeSynthesisContexts.back().Kind ==
+          CodeSynthesisContext::RewritingOperatorAsSpaceship)
     return;
 
   // If it is a macro from system header, and if the macro name is not "NULL",
@@ -1027,7 +1047,7 @@ void Sema::ActOnEndOfTranslationUnit() {
     }
   }
 
-  DiagnoseUnterminatedPragmaPack();
+  DiagnoseUnterminatedPragmaAlignPack();
   DiagnoseUnterminatedPragmaAttribute();
 
   // All delayed member exception specs should be checked or we end up accepting
@@ -1782,6 +1802,15 @@ void Sema::checkDeviceDecl(const ValueDecl *D, SourceLocation Loc) {
     if (Ty->isDependentType())
       return;
 
+    if (Ty->isExtIntType()) {
+      if (!Context.getTargetInfo().hasExtIntType()) {
+        targetDiag(Loc, diag::err_device_unsupported_type)
+            << D << false /*show bit size*/ << 0 /*bitsize*/
+            << Ty << Context.getTargetInfo().getTriple().str();
+      }
+      return;
+    }
+
     if ((Ty->isFloat16Type() && !Context.getTargetInfo().hasFloat16Type()) ||
         ((Ty->isFloat128Type() ||
           (Ty->isRealFloatingType() && Context.getTypeSize(Ty) == 128)) &&
@@ -1789,7 +1818,8 @@ void Sema::checkDeviceDecl(const ValueDecl *D, SourceLocation Loc) {
         (Ty->isIntegerType() && Context.getTypeSize(Ty) == 128 &&
          !Context.getTargetInfo().hasInt128Type())) {
       targetDiag(Loc, diag::err_device_unsupported_type)
-          << D << static_cast<unsigned>(Context.getTypeSize(Ty)) << Ty
+          << D << true /*show bit size*/
+          << static_cast<unsigned>(Context.getTypeSize(Ty)) << Ty
           << Context.getTargetInfo().getTriple().str();
       targetDiag(D->getLocation(), diag::note_defined_here) << D;
     }

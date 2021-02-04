@@ -60,77 +60,86 @@ bool TypeAndShape::operator==(const TypeAndShape &that) const {
       attrs_ == that.attrs_ && corank_ == that.corank_;
 }
 
+TypeAndShape &TypeAndShape::Rewrite(FoldingContext &context) {
+  LEN_ = Fold(context, std::move(LEN_));
+  shape_ = Fold(context, std::move(shape_));
+  return *this;
+}
+
 std::optional<TypeAndShape> TypeAndShape::Characterize(
     const semantics::Symbol &symbol, FoldingContext &context) {
+  const auto &ultimate{symbol.GetUltimate()};
   return std::visit(
       common::visitors{
-          [&](const semantics::ObjectEntityDetails &object) {
-            auto result{Characterize(object)};
-            if (result &&
-                result->type().category() == TypeCategory::Character) {
-              if (auto len{DataRef{symbol}.LEN()}) {
-                result->set_LEN(Fold(context, std::move(*len)));
-              }
+          [&](const semantics::ObjectEntityDetails &object)
+              -> std::optional<TypeAndShape> {
+            if (auto type{DynamicType::From(object.type())}) {
+              TypeAndShape result{
+                  std::move(*type), GetShape(context, ultimate)};
+              result.AcquireAttrs(ultimate);
+              result.AcquireLEN(ultimate);
+              return std::move(result.Rewrite(context));
+            } else {
+              return std::nullopt;
             }
-            return result;
           },
           [&](const semantics::ProcEntityDetails &proc) {
             const semantics::ProcInterface &interface{proc.interface()};
             if (interface.type()) {
-              return Characterize(*interface.type());
+              return Characterize(*interface.type(), context);
             } else if (interface.symbol()) {
               return Characterize(*interface.symbol(), context);
             } else {
               return std::optional<TypeAndShape>{};
             }
           },
-          [&](const semantics::UseDetails &use) {
-            return Characterize(use.symbol(), context);
-          },
-          [&](const semantics::HostAssocDetails &assoc) {
-            return Characterize(assoc.symbol(), context);
+          [&](const semantics::TypeParamDetails &tp) {
+            if (auto type{DynamicType::From(tp.type())}) {
+              return std::optional<TypeAndShape>{std::move(*type)};
+            } else {
+              return std::optional<TypeAndShape>{};
+            }
           },
           [&](const semantics::AssocEntityDetails &assoc) {
             return Characterize(assoc, context);
           },
+          [&](const semantics::ProcBindingDetails &binding) {
+            return Characterize(binding.symbol(), context);
+          },
           [](const auto &) { return std::optional<TypeAndShape>{}; },
       },
-      symbol.details());
-}
-
-std::optional<TypeAndShape> TypeAndShape::Characterize(
-    const semantics::ObjectEntityDetails &object) {
-  if (auto type{DynamicType::From(object.type())}) {
-    TypeAndShape result{std::move(*type)};
-    result.AcquireShape(object);
-    return result;
-  } else {
-    return std::nullopt;
-  }
+      // GetUltimate() used here, not ResolveAssociations(), because
+      // we need the type/rank of an associate entity from TYPE IS,
+      // CLASS IS, or RANK statement.
+      ultimate.details());
 }
 
 std::optional<TypeAndShape> TypeAndShape::Characterize(
     const semantics::AssocEntityDetails &assoc, FoldingContext &context) {
+  std::optional<TypeAndShape> result;
   if (auto type{DynamicType::From(assoc.type())}) {
-    if (auto shape{GetShape(context, assoc.expr())}) {
-      TypeAndShape result{std::move(*type), std::move(*shape)};
-      if (type->category() == TypeCategory::Character) {
-        if (const auto *chExpr{UnwrapExpr<Expr<SomeCharacter>>(assoc.expr())}) {
-          if (auto len{chExpr->LEN()}) {
-            result.set_LEN(Fold(context, std::move(*len)));
-          }
+    if (auto rank{assoc.rank()}) {
+      if (*rank >= 0 && *rank <= common::maxRank) {
+        result = TypeAndShape{std::move(*type), Shape(*rank)};
+      }
+    } else if (auto shape{GetShape(context, assoc.expr())}) {
+      result = TypeAndShape{std::move(*type), std::move(*shape)};
+    }
+    if (result && type->category() == TypeCategory::Character) {
+      if (const auto *chExpr{UnwrapExpr<Expr<SomeCharacter>>(assoc.expr())}) {
+        if (auto len{chExpr->LEN()}) {
+          result->set_LEN(std::move(*len));
         }
       }
-      return std::move(result);
     }
   }
-  return std::nullopt;
+  return Fold(context, std::move(result));
 }
 
 std::optional<TypeAndShape> TypeAndShape::Characterize(
-    const semantics::DeclTypeSpec &spec) {
+    const semantics::DeclTypeSpec &spec, FoldingContext &context) {
   if (auto type{DynamicType::From(spec)}) {
-    return TypeAndShape{std::move(*type)};
+    return Fold(context, TypeAndShape{std::move(*type)});
   } else {
     return std::nullopt;
   }
@@ -143,7 +152,8 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
 
 bool TypeAndShape::IsCompatibleWith(parser::ContextualMessages &messages,
     const TypeAndShape &that, const char *thisIs, const char *thatIs,
-    bool isElemental) const {
+    bool isElemental, bool thisIsDeferredShape,
+    bool thatIsDeferredShape) const {
   if (!type_.IsTkCompatibleWith(that.type_)) {
     const auto &len{that.LEN()};
     messages.Say(
@@ -153,52 +163,56 @@ bool TypeAndShape::IsCompatibleWith(parser::ContextualMessages &messages,
     return false;
   }
   return isElemental ||
-      CheckConformance(messages, shape_, that.shape_, thisIs, thatIs);
+      CheckConformance(messages, shape_, that.shape_, thisIs, thatIs, false,
+          false /* no scalar expansion */, thisIsDeferredShape,
+          thatIsDeferredShape);
+}
+
+std::optional<Expr<SubscriptInteger>> TypeAndShape::MeasureElementSizeInBytes(
+    FoldingContext &foldingContext, bool align) const {
+  if (LEN_) {
+    CHECK(type_.category() == TypeCategory::Character);
+    return Fold(foldingContext,
+        Expr<SubscriptInteger>{type_.kind()} * Expr<SubscriptInteger>{*LEN_});
+  }
+  if (auto elementBytes{type_.MeasureSizeInBytes(foldingContext, align)}) {
+    return Fold(foldingContext, std::move(*elementBytes));
+  }
+  return std::nullopt;
 }
 
 std::optional<Expr<SubscriptInteger>> TypeAndShape::MeasureSizeInBytes(
-    FoldingContext *foldingContext) const {
-  if (type_.category() == TypeCategory::Character && LEN_) {
-    Expr<SubscriptInteger> result{
-        common::Clone(*LEN_) * Expr<SubscriptInteger>{type_.kind()}};
-    if (foldingContext) {
-      result = Fold(*foldingContext, std::move(result));
+    FoldingContext &foldingContext) const {
+  if (auto elements{GetSize(Shape{shape_})}) {
+    // Sizes of arrays (even with single elements) are multiples of
+    // their alignments.
+    if (auto elementBytes{
+            MeasureElementSizeInBytes(foldingContext, GetRank(shape_) > 0)}) {
+      return Fold(
+          foldingContext, std::move(*elements) * std::move(*elementBytes));
     }
-    return result;
-  } else {
-    return type_.MeasureSizeInBytes(foldingContext);
   }
+  return std::nullopt;
 }
 
-void TypeAndShape::AcquireShape(const semantics::ObjectEntityDetails &object) {
-  CHECK(shape_.empty() && !attrs_.test(Attr::AssumedRank));
-  corank_ = object.coshape().Rank();
-  if (object.IsAssumedRank()) {
-    attrs_.set(Attr::AssumedRank);
-    return;
-  }
-  if (object.IsAssumedShape()) {
-    attrs_.set(Attr::AssumedShape);
-  }
-  if (object.IsAssumedSize()) {
-    attrs_.set(Attr::AssumedSize);
-  }
-  if (object.IsDeferredShape()) {
-    attrs_.set(Attr::DeferredShape);
-  }
-  if (object.IsCoarray()) {
-    attrs_.set(Attr::Coarray);
-  }
-  for (const semantics::ShapeSpec &dim : object.shape()) {
-    if (dim.ubound().GetExplicit()) {
-      Expr<SubscriptInteger> extent{*dim.ubound().GetExplicit()};
-      if (auto lbound{dim.lbound().GetExplicit()}) {
-        extent =
-            std::move(extent) + Expr<SubscriptInteger>{1} - std::move(*lbound);
-      }
-      shape_.emplace_back(std::move(extent));
-    } else {
-      shape_.push_back(std::nullopt);
+void TypeAndShape::AcquireAttrs(const semantics::Symbol &symbol) {
+  if (const auto *object{
+          symbol.GetUltimate().detailsIf<semantics::ObjectEntityDetails>()}) {
+    corank_ = object->coshape().Rank();
+    if (object->IsAssumedRank()) {
+      attrs_.set(Attr::AssumedRank);
+    }
+    if (object->IsAssumedShape()) {
+      attrs_.set(Attr::AssumedShape);
+    }
+    if (object->IsAssumedSize()) {
+      attrs_.set(Attr::AssumedSize);
+    }
+    if (object->IsDeferredShape()) {
+      attrs_.set(Attr::DeferredShape);
+    }
+    if (object->IsCoarray()) {
+      attrs_.set(Attr::Coarray);
     }
   }
 }
@@ -209,6 +223,14 @@ void TypeAndShape::AcquireLEN() {
       if (const auto &intExpr{param->GetExplicit()}) {
         LEN_ = ConvertToType<SubscriptInteger>(common::Clone(*intExpr));
       }
+    }
+  }
+}
+
+void TypeAndShape::AcquireLEN(const semantics::Symbol &symbol) {
+  if (type_.category() == TypeCategory::Character) {
+    if (auto len{DataRef{symbol}.LEN()}) {
+      LEN_ = std::move(*len);
     }
   }
 }
@@ -251,9 +273,9 @@ static common::Intent GetIntent(const semantics::Attrs &attrs) {
 }
 
 std::optional<DummyDataObject> DummyDataObject::Characterize(
-    const semantics::Symbol &symbol) {
-  if (const auto *obj{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
-    if (auto type{TypeAndShape::Characterize(*obj)}) {
+    const semantics::Symbol &symbol, FoldingContext &context) {
+  if (symbol.has<semantics::ObjectEntityDetails>()) {
+    if (auto type{TypeAndShape::Characterize(symbol, context)}) {
       std::optional<DummyDataObject> result{std::move(*type)};
       using semantics::Attr;
       CopyAttrs<DummyDataObject, DummyDataObject::Attr>(symbol, *result,
@@ -320,8 +342,8 @@ bool DummyProcedure::operator==(const DummyProcedure &that) const {
 }
 
 std::optional<DummyProcedure> DummyProcedure::Characterize(
-    const semantics::Symbol &symbol, const IntrinsicProcTable &intrinsics) {
-  if (auto procedure{Procedure::Characterize(symbol, intrinsics)}) {
+    const semantics::Symbol &symbol, FoldingContext &context) {
+  if (auto procedure{Procedure::Characterize(symbol, context)}) {
     // Dummy procedures may not be elemental.  Elemental dummy procedure
     // interfaces are errors when the interface is not intrinsic, and that
     // error is caught elsewhere.  Elemental intrinsic interfaces are
@@ -360,13 +382,13 @@ bool DummyArgument::operator==(const DummyArgument &that) const {
 }
 
 std::optional<DummyArgument> DummyArgument::Characterize(
-    const semantics::Symbol &symbol, const IntrinsicProcTable &intrinsics) {
+    const semantics::Symbol &symbol, FoldingContext &context) {
   auto name{symbol.name().ToString()};
   if (symbol.has<semantics::ObjectEntityDetails>()) {
-    if (auto obj{DummyDataObject::Characterize(symbol)}) {
+    if (auto obj{DummyDataObject::Characterize(symbol, context)}) {
       return DummyArgument{std::move(name), std::move(obj.value())};
     }
-  } else if (auto proc{DummyProcedure::Characterize(symbol, intrinsics)}) {
+  } else if (auto proc{DummyProcedure::Characterize(symbol, context)}) {
     return DummyArgument{std::move(name), std::move(proc.value())};
   }
   return std::nullopt;
@@ -387,8 +409,7 @@ std::optional<DummyArgument> DummyArgument::FromActual(
                     TypeAndShape{DynamicType::TypelessIntrinsicArgument()}});
           },
           [&](const ProcedureDesignator &designator) {
-            if (auto proc{Procedure::Characterize(
-                    designator, context.intrinsics())}) {
+            if (auto proc{Procedure::Characterize(designator, context)}) {
               return std::make_optional<DummyArgument>(
                   std::move(name), DummyProcedure{std::move(*proc)});
             } else {
@@ -396,8 +417,7 @@ std::optional<DummyArgument> DummyArgument::FromActual(
             }
           },
           [&](const ProcedureRef &call) {
-            if (auto proc{
-                    Procedure::Characterize(call, context.intrinsics())}) {
+            if (auto proc{Procedure::Characterize(call, context)}) {
               return std::make_optional<DummyArgument>(
                   std::move(name), DummyProcedure{std::move(*proc)});
             } else {
@@ -497,9 +517,9 @@ bool FunctionResult::operator==(const FunctionResult &that) const {
 }
 
 std::optional<FunctionResult> FunctionResult::Characterize(
-    const Symbol &symbol, const IntrinsicProcTable &intrinsics) {
-  if (const auto *object{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
-    if (auto type{TypeAndShape::Characterize(*object)}) {
+    const Symbol &symbol, FoldingContext &context) {
+  if (symbol.has<semantics::ObjectEntityDetails>()) {
+    if (auto type{TypeAndShape::Characterize(symbol, context)}) {
       FunctionResult result{std::move(*type)};
       CopyAttrs<FunctionResult, FunctionResult::Attr>(symbol, result,
           {
@@ -509,7 +529,7 @@ std::optional<FunctionResult> FunctionResult::Characterize(
           });
       return result;
     }
-  } else if (auto maybeProc{Procedure::Characterize(symbol, intrinsics)}) {
+  } else if (auto maybeProc{Procedure::Characterize(symbol, context)}) {
     FunctionResult result{std::move(*maybeProc)};
     result.attrs.set(FunctionResult::Attr::Pointer);
     return result;
@@ -623,9 +643,9 @@ bool Procedure::CanOverride(
 }
 
 std::optional<Procedure> Procedure::Characterize(
-    const semantics::Symbol &original, const IntrinsicProcTable &intrinsics) {
+    const semantics::Symbol &original, FoldingContext &context) {
   Procedure result;
-  const auto &symbol{ResolveAssociations(original)};
+  const auto &symbol{original.GetUltimate()};
   CopyAttrs<Procedure, Procedure::Attr>(symbol, result,
       {
           {semantics::Attr::PURE, Procedure::Attr::Pure},
@@ -641,8 +661,8 @@ std::optional<Procedure> Procedure::Characterize(
           [&](const semantics::SubprogramDetails &subp)
               -> std::optional<Procedure> {
             if (subp.isFunction()) {
-              if (auto fr{FunctionResult::Characterize(
-                      subp.result(), intrinsics)}) {
+              if (auto fr{
+                      FunctionResult::Characterize(subp.result(), context)}) {
                 result.functionResult = std::move(fr);
               } else {
                 return std::nullopt;
@@ -654,7 +674,7 @@ std::optional<Procedure> Procedure::Characterize(
               if (!arg) {
                 result.dummyArguments.emplace_back(AlternateReturn{});
               } else if (auto argCharacteristics{
-                             DummyArgument::Characterize(*arg, intrinsics)}) {
+                             DummyArgument::Characterize(*arg, context)}) {
                 result.dummyArguments.emplace_back(
                     std::move(argCharacteristics.value()));
               } else {
@@ -666,12 +686,12 @@ std::optional<Procedure> Procedure::Characterize(
           [&](const semantics::ProcEntityDetails &proc)
               -> std::optional<Procedure> {
             if (symbol.attrs().test(semantics::Attr::INTRINSIC)) {
-              return intrinsics.IsSpecificIntrinsicFunction(
+              return context.intrinsics().IsSpecificIntrinsicFunction(
                   symbol.name().ToString());
             }
             const semantics::ProcInterface &interface{proc.interface()};
             if (const semantics::Symbol * interfaceSymbol{interface.symbol()}) {
-              return Characterize(*interfaceSymbol, intrinsics);
+              return Characterize(*interfaceSymbol, context);
             } else {
               result.attrs.set(Attr::ImplicitInterface);
               const semantics::DeclTypeSpec *type{interface.type()};
@@ -692,7 +712,7 @@ std::optional<Procedure> Procedure::Characterize(
             }
           },
           [&](const semantics::ProcBindingDetails &binding) {
-            if (auto result{Characterize(binding.symbol(), intrinsics)}) {
+            if (auto result{Characterize(binding.symbol(), context)}) {
               if (!symbol.attrs().test(semantics::Attr::NOPASS)) {
                 auto passName{binding.passName()};
                 for (auto &dummy : result->dummyArguments) {
@@ -709,10 +729,10 @@ std::optional<Procedure> Procedure::Characterize(
             }
           },
           [&](const semantics::UseDetails &use) {
-            return Characterize(use.symbol(), intrinsics);
+            return Characterize(use.symbol(), context);
           },
           [&](const semantics::HostAssocDetails &assoc) {
-            return Characterize(assoc.symbol(), intrinsics);
+            return Characterize(assoc.symbol(), context);
           },
           [](const auto &) { return std::optional<Procedure>{}; },
       },
@@ -720,10 +740,10 @@ std::optional<Procedure> Procedure::Characterize(
 }
 
 std::optional<Procedure> Procedure::Characterize(
-    const ProcedureDesignator &proc, const IntrinsicProcTable &intrinsics) {
+    const ProcedureDesignator &proc, FoldingContext &context) {
   if (const auto *symbol{proc.GetSymbol()}) {
     if (auto result{characteristics::Procedure::Characterize(
-            ResolveAssociations(*symbol), intrinsics)}) {
+            symbol->GetUltimate(), context)}) {
       return result;
     }
   } else if (const auto *intrinsic{proc.GetSpecificIntrinsic()}) {
@@ -733,8 +753,8 @@ std::optional<Procedure> Procedure::Characterize(
 }
 
 std::optional<Procedure> Procedure::Characterize(
-    const ProcedureRef &ref, const IntrinsicProcTable &intrinsics) {
-  if (auto callee{Characterize(ref.proc(), intrinsics)}) {
+    const ProcedureRef &ref, FoldingContext &context) {
+  if (auto callee{Characterize(ref.proc(), context)}) {
     if (callee->functionResult) {
       if (const Procedure *
           proc{callee->functionResult->IsProcedurePointer()}) {

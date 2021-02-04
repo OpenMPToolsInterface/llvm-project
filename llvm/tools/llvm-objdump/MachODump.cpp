@@ -107,70 +107,70 @@ static cl::opt<bool> NoLeadingHeaders("no-leading-headers",
 
 cl::opt<bool> objdump::UniversalHeaders(
     "universal-headers",
-    cl::desc("Print Mach-O universal headers (requires -macho)"),
+    cl::desc("Print Mach-O universal headers (requires --macho)"),
     cl::cat(MachOCat));
 
 static cl::opt<bool> ArchiveMemberOffsets(
     "archive-member-offsets",
     cl::desc("Print the offset to each archive member for Mach-O archives "
-             "(requires -macho and -archive-headers)"),
+             "(requires --macho and --archive-headers)"),
     cl::cat(MachOCat));
 
 cl::opt<bool> objdump::IndirectSymbols(
     "indirect-symbols",
     cl::desc(
-        "Print indirect symbol table for Mach-O objects (requires -macho)"),
+        "Print indirect symbol table for Mach-O objects (requires --macho)"),
     cl::cat(MachOCat));
 
 cl::opt<bool> objdump::DataInCode(
     "data-in-code",
     cl::desc(
-        "Print the data in code table for Mach-O objects (requires -macho)"),
+        "Print the data in code table for Mach-O objects (requires --macho)"),
     cl::cat(MachOCat));
 
 cl::opt<bool>
     objdump::LinkOptHints("link-opt-hints",
                           cl::desc("Print the linker optimization hints for "
-                                   "Mach-O objects (requires -macho)"),
+                                   "Mach-O objects (requires --macho)"),
                           cl::cat(MachOCat));
 
 cl::opt<bool>
     objdump::InfoPlist("info-plist",
                        cl::desc("Print the info plist section as strings for "
-                                "Mach-O objects (requires -macho)"),
+                                "Mach-O objects (requires --macho)"),
                        cl::cat(MachOCat));
 
 cl::opt<bool>
     objdump::DylibsUsed("dylibs-used",
                         cl::desc("Print the shared libraries used for linked "
-                                 "Mach-O files (requires -macho)"),
+                                 "Mach-O files (requires --macho)"),
                         cl::cat(MachOCat));
 
 cl::opt<bool> objdump::DylibId("dylib-id",
                                cl::desc("Print the shared library's id for the "
-                                        "dylib Mach-O file (requires -macho)"),
+                                        "dylib Mach-O file (requires --macho)"),
                                cl::cat(MachOCat));
 
 static cl::opt<bool>
     NonVerbose("non-verbose",
                cl::desc("Print the info for Mach-O objects in non-verbose or "
-                        "numeric form (requires -macho)"),
+                        "numeric form (requires --macho)"),
                cl::cat(MachOCat));
 
 cl::opt<bool>
     objdump::ObjcMetaData("objc-meta-data",
                           cl::desc("Print the Objective-C runtime meta data "
-                                   "for Mach-O files (requires -macho)"),
+                                   "for Mach-O files (requires --macho)"),
                           cl::cat(MachOCat));
 
 static cl::opt<std::string> DisSymName(
     "dis-symname",
-    cl::desc("disassemble just this symbol's instructions (requires -macho)"),
+    cl::desc("disassemble just this symbol's instructions (requires --macho)"),
     cl::cat(MachOCat));
 
 static cl::opt<bool> NoSymbolicOperands(
     "no-symbolic-operands",
-    cl::desc("do not symbolic operands when disassembling (requires -macho)"),
+    cl::desc("do not symbolic operands when disassembling (requires --macho)"),
     cl::cat(MachOCat));
 
 static cl::list<std::string>
@@ -362,8 +362,7 @@ static void getSectionsAndSymbols(MachOObjectFile *MachOObj,
       Symbols.push_back(Symbol);
   }
 
-  for (const SectionRef &Section : MachOObj->sections())
-    Sections.push_back(Section);
+  append_range(Sections, MachOObj->sections());
 
   bool BaseSegmentAddressSet = false;
   for (const auto &Command : MachOObj->load_commands()) {
@@ -1889,9 +1888,7 @@ static bool checkMachOAndArchFlags(ObjectFile *O, StringRef Filename) {
                                        &McpuDefault, &ArchFlag);
   }
   const std::string ArchFlagName(ArchFlag);
-  if (none_of(ArchFlags, [&](const std::string &Name) {
-        return Name == ArchFlagName;
-      })) {
+  if (!llvm::is_contained(ArchFlags, ArchFlagName)) {
     WithColor::error(errs(), "llvm-objdump")
         << Filename << ": no architecture specified.\n";
     return false;
@@ -2397,7 +2394,7 @@ void objdump::parseInputMachO(MachOUniversalBinary *UB) {
           ArchFound = true;
           Expected<std::unique_ptr<ObjectFile>> ObjOrErr =
               I->getAsObjectFile();
-          std::string ArchitectureName = "";
+          std::string ArchitectureName;
           if (ArchFlags.size() > 1)
             ArchitectureName = I->getArchFlagName();
           if (ObjOrErr) {
@@ -2513,7 +2510,7 @@ void objdump::parseInputMachO(MachOUniversalBinary *UB) {
                                               E = UB->end_objects();
         I != E; ++I) {
     Expected<std::unique_ptr<ObjectFile>> ObjOrErr = I->getAsObjectFile();
-    std::string ArchitectureName = "";
+    std::string ArchitectureName;
     if (moreThanOneArch)
       ArchitectureName = I->getArchFlagName();
     if (ObjOrErr) {
@@ -6117,8 +6114,7 @@ static void printObjc2_64bit_MetaData(MachOObjectFile *O, bool verbose) {
     CreateSymbolAddressMap(O, &AddrMap);
 
   std::vector<SectionRef> Sections;
-  for (const SectionRef &Section : O->sections())
-    Sections.push_back(Section);
+  append_range(Sections, O->sections());
 
   struct DisassembleInfo info(O, &AddrMap, &Sections, verbose);
 
@@ -6199,8 +6195,7 @@ static void printObjc2_32bit_MetaData(MachOObjectFile *O, bool verbose) {
     CreateSymbolAddressMap(O, &AddrMap);
 
   std::vector<SectionRef> Sections;
-  for (const SectionRef &Section : O->sections())
-    Sections.push_back(Section);
+  append_range(Sections, O->sections());
 
   struct DisassembleInfo info(O, &AddrMap, &Sections, verbose);
 
@@ -6294,8 +6289,7 @@ static bool printObjc1_32bit_MetaData(MachOObjectFile *O, bool verbose) {
     CreateSymbolAddressMap(O, &AddrMap);
 
   std::vector<SectionRef> Sections;
-  for (const SectionRef &Section : O->sections())
-    Sections.push_back(Section);
+  append_range(Sections, O->sections());
 
   struct DisassembleInfo info(O, &AddrMap, &Sections, verbose);
 
@@ -6452,8 +6446,7 @@ static void DumpProtocolSection(MachOObjectFile *O, const char *sect,
   CreateSymbolAddressMap(O, &AddrMap);
 
   std::vector<SectionRef> Sections;
-  for (const SectionRef &Section : O->sections())
-    Sections.push_back(Section);
+  append_range(Sections, O->sections());
 
   struct DisassembleInfo info(O, &AddrMap, &Sections, true);
 
@@ -8014,12 +8007,23 @@ static void printCompressedSecondLevelUnwindPage(
   (void)Kind;
   assert(Kind == 3 && "kind for a compressed 2nd level index should be 3");
 
+  uint32_t NumCommonEncodings = CommonEncodings.size();
   uint16_t EntriesStart = readNext<uint16_t>(PageData, Pos);
   uint16_t NumEntries = readNext<uint16_t>(PageData, Pos);
 
-  uint16_t EncodingsStart = readNext<uint16_t>(PageData, Pos);
-  readNext<uint16_t>(PageData, Pos);
-  StringRef PageEncodings = PageData.substr(EncodingsStart, StringRef::npos);
+  uint16_t PageEncodingsStart = readNext<uint16_t>(PageData, Pos);
+  uint16_t NumPageEncodings = readNext<uint16_t>(PageData, Pos);
+  SmallVector<uint32_t, 64> PageEncodings;
+  if (NumPageEncodings) {
+    outs() << "      Page encodings: (count = " << NumPageEncodings << ")\n";
+    Pos = PageEncodingsStart;
+    for (unsigned i = 0; i < NumPageEncodings; ++i) {
+      uint32_t Encoding = readNext<uint32_t>(PageData, Pos);
+      PageEncodings.push_back(Encoding);
+      outs() << "        encoding[" << (i + NumCommonEncodings)
+             << "]: " << format("0x%08" PRIx32, Encoding) << '\n';
+    }
+  }
 
   Pos = EntriesStart;
   for (unsigned i = 0; i < NumEntries; ++i) {
@@ -8028,12 +8032,10 @@ static void printCompressedSecondLevelUnwindPage(
     uint32_t EncodingIdx = Entry >> 24;
 
     uint32_t Encoding;
-    if (EncodingIdx < CommonEncodings.size())
+    if (EncodingIdx < NumCommonEncodings)
       Encoding = CommonEncodings[EncodingIdx];
     else
-      Encoding = read<uint32_t>(PageEncodings,
-                                sizeof(uint32_t) *
-                                    (EncodingIdx - CommonEncodings.size()));
+      Encoding = PageEncodings[EncodingIdx - NumCommonEncodings];
 
     outs() << "      [" << i << "]: "
            << "function offset=" << format("0x%08" PRIx32, FunctionOffset)

@@ -123,6 +123,10 @@ void DAGTypeLegalizer::PromoteIntegerResult(SDNode *N, unsigned ResNo) {
   case ISD::FP_TO_SINT:
   case ISD::FP_TO_UINT:  Res = PromoteIntRes_FP_TO_XINT(N); break;
 
+  case ISD::FP_TO_SINT_SAT:
+  case ISD::FP_TO_UINT_SAT:
+                         Res = PromoteIntRes_FP_TO_XINT_SAT(N); break;
+
   case ISD::FP_TO_FP16:  Res = PromoteIntRes_FP_TO_FP16(N); break;
 
   case ISD::FLT_ROUNDS_: Res = PromoteIntRes_FLT_ROUNDS(N); break;
@@ -451,6 +455,15 @@ SDValue DAGTypeLegalizer::PromoteIntRes_BSWAP(SDNode *N) {
   EVT NVT = Op.getValueType();
   SDLoc dl(N);
 
+  // If the larger BSWAP isn't supported by the target, try to expand now.
+  // If we expand later we'll end up with more operations since we lost the
+  // original type. We only do this for scalars since we have a shuffle
+  // based lowering for vectors in LegalizeVectorOps.
+  if (!OVT.isVector() && !TLI.isOperationLegalOrCustom(ISD::BSWAP, NVT)) {
+    if (SDValue Res = TLI.expandBSWAP(N, DAG))
+      return DAG.getNode(ISD::ANY_EXTEND, dl, NVT, Res);
+  }
+
   unsigned DiffBits = NVT.getScalarSizeInBits() - OVT.getScalarSizeInBits();
   EVT ShiftVT = getShiftAmountTyForConstant(NVT, TLI, DAG);
   return DAG.getNode(ISD::SRL, dl, NVT, DAG.getNode(ISD::BSWAP, dl, NVT, Op),
@@ -596,6 +609,14 @@ SDValue DAGTypeLegalizer::PromoteIntRes_FP_TO_XINT(SDNode *N) {
                      DAG.getValueType(N->getValueType(0).getScalarType()));
 }
 
+SDValue DAGTypeLegalizer::PromoteIntRes_FP_TO_XINT_SAT(SDNode *N) {
+  // Promote the result type, while keeping the original width in Op1.
+  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), N->getValueType(0));
+  SDLoc dl(N);
+  return DAG.getNode(N->getOpcode(), dl, NVT, N->getOperand(0),
+                     N->getOperand(1));
+}
+
 SDValue DAGTypeLegalizer::PromoteIntRes_FP_TO_FP16(SDNode *N) {
   EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), N->getValueType(0));
   SDLoc dl(N);
@@ -679,12 +700,17 @@ SDValue DAGTypeLegalizer::PromoteIntRes_MGATHER(MaskedGatherSDNode *N) {
   assert(NVT == ExtPassThru.getValueType() &&
       "Gather result type and the passThru argument type should be the same");
 
+  ISD::LoadExtType ExtType = N->getExtensionType();
+  if (ExtType == ISD::NON_EXTLOAD)
+    ExtType = ISD::EXTLOAD;
+
   SDLoc dl(N);
   SDValue Ops[] = {N->getChain(), ExtPassThru, N->getMask(), N->getBasePtr(),
                    N->getIndex(), N->getScale() };
   SDValue Res = DAG.getMaskedGather(DAG.getVTList(NVT, MVT::Other),
                                     N->getMemoryVT(), dl, Ops,
-                                    N->getMemOperand(), N->getIndexType());
+                                    N->getMemOperand(), N->getIndexType(),
+                                    ExtType);
   // Legalize the chain result - switch anything that used the old chain to
   // use the new one.
   ReplaceValueWith(SDValue(N, 1), Res.getValue(1));
@@ -1518,6 +1544,8 @@ bool DAGTypeLegalizer::PromoteIntegerOperand(SDNode *N, unsigned OpNo) {
   case ISD::VECREDUCE_SMIN:
   case ISD::VECREDUCE_UMAX:
   case ISD::VECREDUCE_UMIN: Res = PromoteIntOp_VECREDUCE(N); break;
+
+  case ISD::SET_ROUNDING: Res = PromoteIntOp_SET_ROUNDING(N); break;
   }
 
   // If the result is null, the sub-method took care of registering results etc.
@@ -1983,6 +2011,11 @@ SDValue DAGTypeLegalizer::PromoteIntOp_VECREDUCE(SDNode *N) {
   return DAG.getNode(ISD::TRUNCATE, dl, VT, Reduce);
 }
 
+SDValue DAGTypeLegalizer::PromoteIntOp_SET_ROUNDING(SDNode *N) {
+  SDValue Op = ZExtPromotedInteger(N->getOperand(1));
+  return SDValue(DAG.UpdateNodeOperands(N, N->getOperand(0), Op), 0);
+}
+
 //===----------------------------------------------------------------------===//
 //  Integer Result Expansion
 //===----------------------------------------------------------------------===//
@@ -2040,6 +2073,8 @@ void DAGTypeLegalizer::ExpandIntegerResult(SDNode *N, unsigned ResNo) {
   case ISD::FP_TO_SINT:  ExpandIntRes_FP_TO_SINT(N, Lo, Hi); break;
   case ISD::STRICT_FP_TO_UINT:
   case ISD::FP_TO_UINT:  ExpandIntRes_FP_TO_UINT(N, Lo, Hi); break;
+  case ISD::FP_TO_SINT_SAT:
+  case ISD::FP_TO_UINT_SAT: ExpandIntRes_FP_TO_XINT_SAT(N, Lo, Hi); break;
   case ISD::STRICT_LLROUND:
   case ISD::STRICT_LLRINT:
   case ISD::LLROUND:
@@ -3043,6 +3078,12 @@ void DAGTypeLegalizer::ExpandIntRes_FP_TO_UINT(SDNode *N, SDValue &Lo,
 
   if (IsStrict)
     ReplaceValueWith(SDValue(N, 1), Tmp.second);
+}
+
+void DAGTypeLegalizer::ExpandIntRes_FP_TO_XINT_SAT(SDNode *N, SDValue &Lo,
+                                                   SDValue &Hi) {
+  SDValue Res = TLI.expandFP_TO_INT_SAT(N, DAG);
+  SplitInteger(Res, Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandIntRes_LLROUND_LLRINT(SDNode *N, SDValue &Lo,

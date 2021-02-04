@@ -371,6 +371,7 @@ kmpc_set_defaults                           224
         __kmpc_doacross_fini                264
         __kmpc_taskloop                     266
         __kmpc_critical_with_hint           270
+        __kmpc_taskloop_5                   285
 %endif
 kmpc_aligned_malloc                         265
 kmpc_set_disp_num_buffers                   267
@@ -536,6 +537,10 @@ kmp_set_disp_num_buffers                    890
     omp_pause_resource_all                  757
     omp_get_supported_active_levels         758
     omp_fulfill_event                       759
+    omp_set_num_teams                       802
+    omp_get_max_teams                       803
+    omp_set_teams_thread_limit              804
+    omp_get_teams_thread_limit              805
     omp_display_env                         733
     omp_calloc                              776
     omp_realloc                             777

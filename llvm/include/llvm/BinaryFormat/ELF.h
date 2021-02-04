@@ -107,13 +107,17 @@ struct Elf64_Ehdr {
   unsigned char getDataEncoding() const { return e_ident[EI_DATA]; }
 };
 
-// File types
+// File types.
+// See current registered ELF types at:
+//    http://www.sco.com/developers/gabi/latest/ch4.eheader.html
 enum {
   ET_NONE = 0,        // No file type
   ET_REL = 1,         // Relocatable file
   ET_EXEC = 2,        // Executable file
   ET_DYN = 3,         // Shared object file
   ET_CORE = 4,        // Core file
+  ET_LOOS = 0xfe00,   // Beginning of operating system-specific codes
+  ET_HIOS = 0xfeff,   // Operating system-specific
   ET_LOPROC = 0xff00, // Beginning of processor-specific codes
   ET_HIPROC = 0xffff  // Processor-specific
 };
@@ -594,6 +598,7 @@ enum {
   EF_HEXAGON_MACH_V66 = 0x00000066,  // Hexagon V66
   EF_HEXAGON_MACH_V67 = 0x00000067,  // Hexagon V67
   EF_HEXAGON_MACH_V67T = 0x00008067, // Hexagon V67T
+  EF_HEXAGON_MACH_V68 = 0x00000068,  // Hexagon V68
 
   // Highest ISA version flags
   EF_HEXAGON_ISA_MACH = 0x00000000, // Same as specified in bits[11:0]
@@ -608,6 +613,7 @@ enum {
   EF_HEXAGON_ISA_V65 = 0x00000065,  // Hexagon V65 ISA
   EF_HEXAGON_ISA_V66 = 0x00000066,  // Hexagon V66 ISA
   EF_HEXAGON_ISA_V67 = 0x00000067,  // Hexagon V67 ISA
+  EF_HEXAGON_ISA_V68 = 0x00000068,  // Hexagon V68 ISA
 };
 
 // Hexagon-specific section indexes for common small data
@@ -944,6 +950,9 @@ enum : unsigned {
 
   // Identifies a section containing compressed data.
   SHF_COMPRESSED = 0x800U,
+
+  // This section should not be garbage collected by the linker.
+  SHF_GNU_RETAIN = 0x200000,
 
   // This section is excluded from the final executable or shared library.
   SHF_EXCLUDE = 0x80000000U,

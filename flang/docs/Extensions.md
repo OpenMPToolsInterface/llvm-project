@@ -52,7 +52,6 @@ accepted if enabled by command-line options.
 * `X` prefix/suffix as synonym for `Z` on hexadecimal literals
 * `B`, `O`, `Z`, and `X` accepted as suffixes as well as prefixes
 * Triplets allowed in array constructors
-* Old-style `PARAMETER pi=3.14` statement without parentheses
 * `%LOC`, `%VAL`, and `%REF`
 * Leading comma allowed before I/O item list
 * Empty parentheses allowed in `PROGRAM P()`
@@ -129,7 +128,7 @@ accepted if enabled by command-line options.
 * A `RETURN` statement may appear in a main program.
 * DATA statement initialization is allowed for procedure pointers outside
   structure constructors.
-* Nonstandard intrinsic functions: ISNAN
+* Nonstandard intrinsic functions: ISNAN, SIZEOF
 
 ### Extensions supported when enabled by options
 
@@ -144,14 +143,17 @@ accepted if enabled by command-line options.
   rule imposes an artificially small constraint in some cases
   where Fortran mandates that something have the default `INTEGER`
   type: specifically, the results of references to the intrinsic functions
-  `SIZE`, `LBOUND`, `UBOUND`, `SHAPE`, and the location reductions
+  `SIZE`, `STORAGE_SIZE`,`LBOUND`, `UBOUND`, `SHAPE`, and the location reductions
   `FINDLOC`, `MAXLOC`, and `MINLOC` in the absence of an explicit
   `KIND=` actual argument.  We return `INTEGER(KIND=8)` by default in
   these cases when the `-flarge-sizes` option is enabled.
+  `SIZEOF` and `C_SIZEOF` always return `INTEGER(KIND=8)`.
 * Treat each specification-part like is has `IMPLICIT NONE`
   [-fimplicit-none-type-always]
 * Ignore occurrences of `IMPLICIT NONE` and `IMPLICIT NONE(TYPE)`
   [-fimplicit-none-type-never]
+* Old-style `PARAMETER pi=3.14` statement without parentheses
+  [-falternative-parameter-statement]
 
 ### Extensions and legacy features deliberately not supported
 
