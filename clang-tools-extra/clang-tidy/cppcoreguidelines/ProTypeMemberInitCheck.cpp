@@ -140,17 +140,17 @@ struct IntializerInsertion {
     assert(!Initializers.empty() && "No initializers to insert");
     std::string Code;
     llvm::raw_string_ostream Stream(Code);
-    std::string joined =
+    std::string Joined =
         llvm::join(Initializers.begin(), Initializers.end(), "(), ");
     switch (Placement) {
     case InitializerPlacement::New:
-      Stream << " : " << joined << "()";
+      Stream << " : " << Joined << "()";
       break;
     case InitializerPlacement::Before:
-      Stream << " " << joined << "(),";
+      Stream << " " << Joined << "(),";
       break;
     case InitializerPlacement::After:
-      Stream << ", " << joined << "()";
+      Stream << ", " << Joined << "()";
       break;
     }
     return Stream.str();
@@ -296,6 +296,10 @@ void ProTypeMemberInitCheck::check(const MatchFinder::MatchResult &Result) {
   if (const auto *Ctor = Result.Nodes.getNodeAs<CXXConstructorDecl>("ctor")) {
     // Skip declarations delayed by late template parsing without a body.
     if (!Ctor->getBody())
+      return;
+    // Skip out-of-band explicitly defaulted special member functions
+    // (except the default constructor).
+    if (Ctor->isExplicitlyDefaulted() && !Ctor->isDefaultConstructor())
       return;
     checkMissingMemberInitializer(*Result.Context, *Ctor->getParent(), Ctor);
     checkMissingBaseClassInitializer(*Result.Context, *Ctor->getParent(), Ctor);

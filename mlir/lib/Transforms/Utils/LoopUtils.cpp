@@ -163,7 +163,7 @@ LogicalResult mlir::promoteIfSingleIteration(AffineForOp forOp) {
   auto *parentBlock = forOp->getBlock();
   if (!iv.use_empty()) {
     if (forOp.hasConstantLowerBound()) {
-      OpBuilder topBuilder(forOp.getParentOfType<FuncOp>().getBody());
+      OpBuilder topBuilder(forOp->getParentOfType<FuncOp>().getBody());
       auto constOp = topBuilder.create<ConstantIndexOp>(
           forOp.getLoc(), forOp.getConstantLowerBound());
       iv.replaceAllUsesWith(constOp);
@@ -507,7 +507,8 @@ checkTilingLegality(MutableArrayRef<mlir::AffineForOp> origLoops) {
   return success(checkTilingLegalityImpl(origLoops));
 }
 
-/// Check if the input data is valid and wheter tiled code will be legal or not.
+/// Check if the input data is valid and whether tiled code will be legal or
+/// not.
 template <typename t>
 void performPreTilingChecks(MutableArrayRef<AffineForOp> input,
                             ArrayRef<t> tileSizes) {
@@ -1484,7 +1485,7 @@ mlir::isPerfectlyNested(ArrayRef<AffineForOp> loops) {
 
   auto enclosingLoop = loops.front();
   for (auto loop : loops.drop_front()) {
-    auto parentForOp = dyn_cast<AffineForOp>(loop.getParentOp());
+    auto parentForOp = dyn_cast<AffineForOp>(loop->getParentOp());
     // parentForOp's body should be just this loop and the terminator.
     if (parentForOp != enclosingLoop || !hasTwoElements(parentForOp.getBody()))
       return false;
@@ -2032,10 +2033,14 @@ void mlir::collapseParallelLoops(
   OpBuilder outsideBuilder(loops);
   Location loc = loops.getLoc();
 
+  // Presort combined dimensions.
+  auto sortedDimensions = llvm::to_vector<3>(combinedDimensions);
+  for (auto &dims : sortedDimensions)
+    std::sort(dims.begin(), dims.end());
+
   // Normalize ParallelOp's iteration pattern.
-  SmallVector<Value, 3> normalizedLowerBounds;
-  SmallVector<Value, 3> normalizedSteps;
-  SmallVector<Value, 3> normalizedUpperBounds;
+  SmallVector<Value, 3> normalizedLowerBounds, normalizedSteps,
+      normalizedUpperBounds;
   for (unsigned i = 0, e = loops.getNumLoops(); i < e; ++i) {
     OpBuilder insideLoopBuilder = OpBuilder::atBlockBegin(loops.getBody());
     auto resultBounds =
@@ -2049,14 +2054,12 @@ void mlir::collapseParallelLoops(
   }
 
   // Combine iteration spaces.
-  SmallVector<Value, 3> lowerBounds;
-  SmallVector<Value, 3> steps;
-  SmallVector<Value, 3> upperBounds;
+  SmallVector<Value, 3> lowerBounds, upperBounds, steps;
   auto cst0 = outsideBuilder.create<ConstantIndexOp>(loc, 0);
   auto cst1 = outsideBuilder.create<ConstantIndexOp>(loc, 1);
-  for (unsigned i = 0, e = combinedDimensions.size(); i < e; ++i) {
+  for (unsigned i = 0, e = sortedDimensions.size(); i < e; ++i) {
     Value newUpperBound = outsideBuilder.create<ConstantIndexOp>(loc, 1);
-    for (auto idx : combinedDimensions[i]) {
+    for (auto idx : sortedDimensions[i]) {
       newUpperBound = outsideBuilder.create<MulIOp>(loc, newUpperBound,
                                                     normalizedUpperBounds[idx]);
     }
@@ -2078,7 +2081,7 @@ void mlir::collapseParallelLoops(
           Value previous = ploopIVs[i];
           unsigned numberCombinedDimensions = combinedDimensions[i].size();
           // Iterate over all except the last induction value.
-          for (unsigned j = 0, e = numberCombinedDimensions - 1; j < e; ++j) {
+          for (unsigned j = numberCombinedDimensions - 1; j > 0; --j) {
             unsigned idx = combinedDimensions[i][j];
 
             // Determine the current induction value's current loop iteration
@@ -2094,7 +2097,7 @@ void mlir::collapseParallelLoops(
           }
 
           // The final induction value is just the remaining value.
-          unsigned idx = combinedDimensions[i][numberCombinedDimensions - 1];
+          unsigned idx = combinedDimensions[i][0];
           replaceAllUsesInRegionWith(loops.getBody()->getArgument(idx),
                                      previous, loops.region());
         }
@@ -3073,7 +3076,7 @@ mlir::separateFullTiles(MutableArrayRef<AffineForOp> inputNest,
   // Each successive for op has to be nested in the other.
   auto prevLoop = firstLoop;
   for (auto loop : inputNest.drop_front(1)) {
-    assert(loop.getParentOp() == prevLoop && "input not contiguously nested");
+    assert(loop->getParentOp() == prevLoop && "input not contiguously nested");
     prevLoop = loop;
   }
 

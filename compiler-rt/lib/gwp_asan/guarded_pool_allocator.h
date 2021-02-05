@@ -13,10 +13,9 @@
 #include "gwp_asan/definitions.h"
 #include "gwp_asan/mutex.h"
 #include "gwp_asan/options.h"
-#include "gwp_asan/platform_specific/guarded_pool_allocator_fuchsia.h"
-#include "gwp_asan/platform_specific/guarded_pool_allocator_posix.h"
+#include "gwp_asan/platform_specific/guarded_pool_allocator_fuchsia.h" // IWYU pragma: keep
+#include "gwp_asan/platform_specific/guarded_pool_allocator_posix.h" // IWYU pragma: keep
 #include "gwp_asan/platform_specific/guarded_pool_allocator_tls.h"
-#include "gwp_asan/stack_trace_compressor.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -181,6 +180,10 @@ private:
 
   // A mutex to protect the guarded slot and metadata pool for this class.
   Mutex PoolMutex;
+  // Some unwinders can grab the libdl lock. In order to provide atfork
+  // protection, we need to ensure that we allow an unwinding thread to release
+  // the libdl lock before forking.
+  Mutex BacktraceMutex;
   // Record the number allocations that we've sampled. We store this amount so
   // that we don't randomly choose to recycle a slot that previously had an
   // allocation before all the slots have been utilised.

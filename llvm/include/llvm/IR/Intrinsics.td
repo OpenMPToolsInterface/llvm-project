@@ -255,6 +255,8 @@ def llvm_token_ty      : LLVMType<token>;                         // token
 def llvm_x86mmx_ty     : LLVMType<x86mmx>;
 def llvm_ptrx86mmx_ty  : LLVMPointerType<llvm_x86mmx_ty>;         // <1 x i64>*
 
+def llvm_x86amx_ty     : LLVMType<x86amx>;
+
 def llvm_v2i1_ty       : LLVMType<v2i1>;     //   2 x i1
 def llvm_v4i1_ty       : LLVMType<v4i1>;     //   4 x i1
 def llvm_v8i1_ty       : LLVMType<v8i1>;     //   8 x i1
@@ -292,6 +294,7 @@ def llvm_v8i32_ty      : LLVMType<v8i32>;    //  8 x i32
 def llvm_v16i32_ty     : LLVMType<v16i32>;   // 16 x i32
 def llvm_v32i32_ty     : LLVMType<v32i32>;   // 32 x i32
 def llvm_v64i32_ty     : LLVMType<v64i32>;   // 64 x i32
+def llvm_v256i32_ty    : LLVMType<v256i32>;  //256 x i32
 
 def llvm_v1i64_ty      : LLVMType<v1i64>;    //  1 x i64
 def llvm_v2i64_ty      : LLVMType<v2i64>;    //  2 x i64
@@ -536,6 +539,16 @@ def int_readcyclecounter : DefaultAttrsIntrinsic<[llvm_i64_ty]>;
 def int_assume        : DefaultAttrsIntrinsic<[], [llvm_i1_ty], [IntrWillReturn,
                                                      NoUndef<ArgIndex<0>>]>;
 
+// 'llvm.experimental.noalias.scope.decl' intrinsic: Inserted at the location of
+// noalias scope declaration. Makes it possible to identify that a noalias scope
+// is only valid inside the body of a loop.
+//
+// Purpose of the different arguments:
+// - arg0: id.scope: metadata representing the scope declaration.
+def int_experimental_noalias_scope_decl
+    : DefaultAttrsIntrinsic<[], [llvm_metadata_ty],
+        [IntrInaccessibleMemOnly]>; // blocks LICM and some more
+
 // Stack Protector Intrinsic - The stackprotector intrinsic writes the stack
 // guard to the correct place on the stack frame.
 def int_stackprotector : DefaultAttrsIntrinsic<[], [llvm_ptr_ty, llvm_ptrptr_ty], []>;
@@ -676,6 +689,7 @@ def int_objectsize : DefaultAttrsIntrinsic<[llvm_anyint_ty],
 
 let IntrProperties = [IntrInaccessibleMemOnly, IntrWillReturn] in {
   def int_flt_rounds    : DefaultAttrsIntrinsic<[llvm_i32_ty], []>;
+  def int_set_rounding  : DefaultAttrsIntrinsic<[], [llvm_i32_ty]>;
 }
 
 //===--------------- Constrained Floating Point Intrinsics ----------------===//
@@ -1212,6 +1226,8 @@ def int_coro_free : Intrinsic<[llvm_ptr_ty], [llvm_token_ty, llvm_ptr_ty],
                                ReadOnly<ArgIndex<1>>,
                                NoCapture<ArgIndex<1>>]>;
 def int_coro_end : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_i1_ty], []>;
+def int_coro_end_async
+    : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_i1_ty, llvm_vararg_ty], []>;
 
 def int_coro_frame : Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>;
 def int_coro_noop : Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>;
@@ -1255,6 +1271,8 @@ def int_trap : Intrinsic<[], [], [IntrNoReturn, IntrCold]>,
                GCCBuiltin<"__builtin_trap">;
 def int_debugtrap : Intrinsic<[]>,
                     GCCBuiltin<"__builtin_debugtrap">;
+def int_ubsantrap : Intrinsic<[], [llvm_i8_ty],
+                              [IntrNoReturn, IntrCold, ImmArg<ArgIndex<0>>]>;
 
 // Support for dynamic deoptimization (or de-specialization)
 def int_experimental_deoptimize : Intrinsic<[llvm_any_ty], [llvm_vararg_ty],
@@ -1281,13 +1299,19 @@ def int_sideeffect : DefaultAttrsIntrinsic<[], [], [IntrInaccessibleMemOnly, Int
 // Like the sideeffect intrinsic defined above, this intrinsic is treated by the 
 // optimizer as having opaque side effects so that it won't be get rid of or moved 
 // out of the block it probes.
-def int_pseudoprobe : Intrinsic<[], [llvm_i64_ty, llvm_i64_ty, llvm_i32_ty],
+def int_pseudoprobe : Intrinsic<[], [llvm_i64_ty, llvm_i64_ty, llvm_i32_ty, llvm_i64_ty],
                                     [IntrInaccessibleMemOnly, IntrWillReturn]>;
 
 // Intrinsics to support half precision floating point format
 let IntrProperties = [IntrNoMem, IntrWillReturn] in {
 def int_convert_to_fp16   : DefaultAttrsIntrinsic<[llvm_i16_ty], [llvm_anyfloat_ty]>;
 def int_convert_from_fp16 : DefaultAttrsIntrinsic<[llvm_anyfloat_ty], [llvm_i16_ty]>;
+}
+
+// Saturating floating point to integer intrinsics
+let IntrProperties = [IntrNoMem, IntrSpeculatable, IntrWillReturn] in {
+def int_fptoui_sat : DefaultAttrsIntrinsic<[llvm_anyint_ty], [llvm_anyfloat_ty]>;
+def int_fptosi_sat : DefaultAttrsIntrinsic<[llvm_anyint_ty], [llvm_anyfloat_ty]>;
 }
 
 // Clear cache intrinsic, default to ignore (ie. emit nothing)
@@ -1611,6 +1635,15 @@ def int_preserve_struct_access_index : DefaultAttrsIntrinsic<[llvm_anyptr_ty],
 
 //===---------- Intrinsics to query properties of scalable vectors --------===//
 def int_vscale : DefaultAttrsIntrinsic<[llvm_anyint_ty], [], [IntrNoMem]>;
+
+//===---------- Intrinsics to perform subvector insertion/extraction ------===//
+def int_experimental_vector_insert : DefaultAttrsIntrinsic<[llvm_anyvector_ty],
+                                                           [LLVMMatchType<0>, llvm_anyvector_ty, llvm_i64_ty],
+                                                           [IntrNoMem, ImmArg<ArgIndex<2>>]>;
+
+def int_experimental_vector_extract : DefaultAttrsIntrinsic<[llvm_anyvector_ty],
+                                                            [llvm_anyvector_ty, llvm_i64_ty],
+                                                            [IntrNoMem, ImmArg<ArgIndex<1>>]>;
 
 //===----------------------------------------------------------------------===//
 

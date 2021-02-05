@@ -547,7 +547,7 @@ struct SimplifyTrivialLoops : public OpRewritePattern<ForOp> {
 
     // If the loop is known to have 1 iteration, inline its body and remove the
     // loop.
-    llvm::APInt stepValue = lb.getValue().cast<IntegerAttr>().getValue();
+    llvm::APInt stepValue = step.getValue().cast<IntegerAttr>().getValue();
     if ((lbValue + stepValue).sge(ubValue)) {
       SmallVector<Value, 4> blockArgs;
       blockArgs.reserve(op.getNumIterOperands() + 1);
@@ -1172,7 +1172,7 @@ static void print(OpAsmPrinter &p, ReduceOp op) {
 static LogicalResult verify(ReduceReturnOp op) {
   // The type of the return value should be the same type as the type of the
   // operand of the enclosing ReduceOp.
-  auto reduceOp = cast<ReduceOp>(op.getParentOp());
+  auto reduceOp = cast<ReduceOp>(op->getParentOp());
   Type reduceType = reduceOp.operand().getType();
   if (reduceType != op.result().getType())
     return op.emitOpError() << "needs to have type " << reduceType

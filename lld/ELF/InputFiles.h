@@ -130,6 +130,10 @@ public:
   // [.got, .got + 0xFFFC].
   bool ppc64SmallCodeModelTocRelocs = false;
 
+  // True if the file has TLSGD/TLSLD GOT relocations without R_PPC64_TLSGD or
+  // R_PPC64_TLSLD. Disable TLS relaxation to avoid bad code generation.
+  bool ppc64DisableTLSRelax = false;
+
   // groupId is used for --warn-backrefs which is an optional error
   // checking feature. All files within the same --{start,end}-group or
   // --{start,end}-lib get the same group ID. Otherwise, each file gets a new
@@ -185,12 +189,7 @@ protected:
 
 // .o file.
 template <class ELFT> class ObjFile : public ELFFileBase {
-  using Elf_Rel = typename ELFT::Rel;
-  using Elf_Rela = typename ELFT::Rela;
-  using Elf_Sym = typename ELFT::Sym;
-  using Elf_Shdr = typename ELFT::Shdr;
-  using Elf_Word = typename ELFT::Word;
-  using Elf_CGProfile = typename ELFT::CGProfile;
+  LLVM_ELF_IMPORT_TYPES_ELFT(ELFT)
 
 public:
   static bool classof(const InputFile *f) { return f->kind() == ObjKind; }
@@ -312,6 +311,10 @@ public:
   template <class ELFT> void parse();
   void fetch();
 
+  // Check if a non-common symbol should be fetched to override a common
+  // definition.
+  bool shouldFetchForCommon(const StringRef &name);
+
   bool fetched = false;
 
 private:
@@ -330,6 +333,10 @@ public:
   // function does nothing (so we don't instantiate the same file
   // more than once.)
   void fetch(const Archive::Symbol &sym);
+
+  // Check if a non-common symbol should be fetched to override a common
+  // definition.
+  bool shouldFetchForCommon(const Archive::Symbol &sym);
 
   size_t getMemberCount() const;
   size_t getFetchedMemberCount() const { return seen.size(); }

@@ -8,6 +8,7 @@
 
 #include "ProfiledBinary.h"
 #include "ErrorHandling.h"
+#include "ProfileGenerator.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Demangle/Demangle.h"
 #include "llvm/Support/CommandLine.h"
@@ -18,6 +19,7 @@
 #define DEBUG_TYPE "load-binary"
 
 using namespace llvm;
+using namespace sampleprof;
 
 static cl::opt<bool> ShowDisassembly("show-disassembly", cl::ReallyHidden,
                                      cl::init(false), cl::ZeroOrMore,
@@ -27,6 +29,10 @@ static cl::opt<bool> ShowSourceLocations("show-source-locations",
                                          cl::ReallyHidden, cl::init(false),
                                          cl::ZeroOrMore,
                                          cl::desc("Print source locations."));
+
+static cl::opt<bool> ShowPseudoProbe(
+    "show-pseudo-probe", cl::ReallyHidden, cl::init(false), cl::ZeroOrMore,
+    cl::desc("Print pseudo probe section and disassembled info."));
 
 namespace llvm {
 namespace sampleprof {
@@ -92,12 +98,65 @@ void ProfiledBinary::load() {
   // Find the preferred base address for text sections.
   setPreferredBaseAddress(Obj);
 
+  // Decode pseudo probe related section
+  decodePseudoProbe(Obj);
+
   // Disassemble the text sections.
   disassemble(Obj);
 
-  // TODO: decode other sections.
+  // Use function start and return address to infer prolog and epilog
+  ProEpilogTracker.inferPrologOffsets(FuncStartAddrMap);
+  ProEpilogTracker.inferEpilogOffsets(RetAddrs);
 
-  return;
+  // TODO: decode other sections.
+}
+
+bool ProfiledBinary::inlineContextEqual(uint64_t Address1,
+                                        uint64_t Address2) const {
+  uint64_t Offset1 = virtualAddrToOffset(Address1);
+  uint64_t Offset2 = virtualAddrToOffset(Address2);
+  const FrameLocationStack &Context1 = getFrameLocationStack(Offset1);
+  const FrameLocationStack &Context2 = getFrameLocationStack(Offset2);
+  if (Context1.size() != Context2.size())
+    return false;
+
+  // The leaf frame contains location within the leaf, and it
+  // needs to be remove that as it's not part of the calling context
+  return std::equal(Context1.begin(), Context1.begin() + Context1.size() - 1,
+                    Context2.begin(), Context2.begin() + Context2.size() - 1);
+}
+
+std::string
+ProfiledBinary::getExpandedContextStr(const std::list<uint64_t> &Stack) const {
+  std::string ContextStr;
+  SmallVector<std::string, 16> ContextVec;
+  // Process from frame root to leaf
+  for (auto Iter = Stack.rbegin(); Iter != Stack.rend(); Iter++) {
+    uint64_t Offset = virtualAddrToOffset(*Iter);
+    const FrameLocationStack &ExpandedContext = getFrameLocationStack(Offset);
+    for (const auto &Loc : ExpandedContext) {
+      ContextVec.push_back(getCallSite(Loc));
+    }
+  }
+
+  assert(ContextVec.size() && "Context length should be at least 1");
+  // Compress the context string except for the leaf frame
+  std::string LeafFrame = ContextVec.back();
+  ContextVec.pop_back();
+  CSProfileGenerator::compressRecursionContext<std::string>(ContextVec);
+
+  std::ostringstream OContextStr;
+  for (uint32_t I = 0; I < (uint32_t)ContextVec.size(); I++) {
+    if (OContextStr.str().size()) {
+      OContextStr << " @ ";
+    }
+    OContextStr << ContextVec[I];
+  }
+  // Only keep the function name for the leaf frame
+  if (OContextStr.str().size())
+    OContextStr << " @ ";
+  OContextStr << StringRef(LeafFrame).split(":").first.str();
+  return OContextStr.str();
 }
 
 void ProfiledBinary::setPreferredBaseAddress(const ELFObjectFileBase *Obj) {
@@ -110,6 +169,30 @@ void ProfiledBinary::setPreferredBaseAddress(const ELFObjectFileBase *Obj) {
     }
   }
   exitWithError("no text section found", Obj->getFileName());
+}
+
+void ProfiledBinary::decodePseudoProbe(const ELFObjectFileBase *Obj) {
+  StringRef FileName = Obj->getFileName();
+  for (section_iterator SI = Obj->section_begin(), SE = Obj->section_end();
+       SI != SE; ++SI) {
+    const SectionRef &Section = *SI;
+    StringRef SectionName = unwrapOrError(Section.getName(), FileName);
+
+    if (SectionName == ".pseudo_probe_desc") {
+      StringRef Contents = unwrapOrError(Section.getContents(), FileName);
+      ProbeDecoder.buildGUID2FuncDescMap(
+          reinterpret_cast<const uint8_t *>(Contents.data()), Contents.size());
+    } else if (SectionName == ".pseudo_probe") {
+      StringRef Contents = unwrapOrError(Section.getContents(), FileName);
+      ProbeDecoder.buildAddress2ProbeMap(
+          reinterpret_cast<const uint8_t *>(Contents.data()), Contents.size());
+      // set UsePseudoProbes flag, used for PerfReader
+      UsePseudoProbes = true;
+    }
+  }
+
+  if (ShowPseudoProbe)
+    ProbeDecoder.printGUID2FuncDescMap(outs());
 }
 
 bool ProfiledBinary::dissassembleSymbol(std::size_t SI, ArrayRef<uint8_t> Bytes,
@@ -140,9 +223,13 @@ bool ProfiledBinary::dissassembleSymbol(std::size_t SI, ArrayRef<uint8_t> Bytes,
       return false;
 
     if (ShowDisassembly) {
+      if (ShowPseudoProbe) {
+        ProbeDecoder.printProbeForAddress(outs(),
+                                          Offset + PreferredBaseAddress);
+      }
       outs() << format("%8" PRIx64 ":", Offset);
       size_t Start = outs().tell();
-      IP->printInst(&Inst, Offset + Size, "", *STI.get(), outs());
+      IPrinter->printInst(&Inst, Offset + Size, "", *STI.get(), outs());
       if (ShowSourceLocations) {
         unsigned Cur = outs().tell() - Start;
         if (Cur < 40)
@@ -154,6 +241,10 @@ bool ProfiledBinary::dissassembleSymbol(std::size_t SI, ArrayRef<uint8_t> Bytes,
     }
 
     const MCInstrDesc &MCDesc = MII->get(Inst.getOpcode());
+
+    // Populate a vector of the symbolized callsite at this location
+    InstructionPointer IP(this, Offset);
+    Offset2LocStackMap[Offset] = symbolize(IP, true);
 
     // Populate address maps.
     CodeAddrs.push_back(Offset);
@@ -206,9 +297,9 @@ void ProfiledBinary::setUpDisassembler(const ELFObjectFileBase *Obj) {
   MIA.reset(TheTarget->createMCInstrAnalysis(MII.get()));
 
   int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
-  IP.reset(TheTarget->createMCInstPrinter(Triple(TripleName), AsmPrinterVariant,
-                                          *AsmInfo, *MII, *MRI));
-  IP->setPrintBranchImmAsAddress(true);
+  IPrinter.reset(TheTarget->createMCInstPrinter(
+      Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
+  IPrinter->setPrintBranchImmAsAddress(true);
 }
 
 void ProfiledBinary::disassemble(const ELFObjectFileBase *Obj) {
@@ -283,7 +374,8 @@ void ProfiledBinary::setupSymbolizer() {
   Symbolizer = std::make_unique<symbolize::LLVMSymbolizer>(SymbolizerOpts);
 }
 
-FrameLocationStack ProfiledBinary::symbolize(const InstructionPointer &IP) {
+FrameLocationStack ProfiledBinary::symbolize(const InstructionPointer &IP,
+                                             bool UseCanonicalFnName) {
   assert(this == IP.Binary &&
          "Binary should only symbolize its own instruction");
   auto Addr = object::SectionedAddress{IP.Offset + PreferredBaseAddress,
@@ -297,13 +389,42 @@ FrameLocationStack ProfiledBinary::symbolize(const InstructionPointer &IP) {
     const auto &CallerFrame = InlineStack.getFrame(I);
     if (CallerFrame.FunctionName == "<invalid>")
       break;
+    StringRef FunctionName(CallerFrame.FunctionName);
+    if (UseCanonicalFnName)
+      FunctionName = FunctionSamples::getCanonicalFnName(FunctionName);
     LineLocation Line(CallerFrame.Line - CallerFrame.StartLine,
                       CallerFrame.Discriminator);
-    FrameLocation Callsite(CallerFrame.FunctionName, Line);
+    FrameLocation Callsite(FunctionName.str(), Line);
     CallStack.push_back(Callsite);
   }
 
   return CallStack;
+}
+
+InstructionPointer::InstructionPointer(ProfiledBinary *Binary, uint64_t Address,
+                                       bool RoundToNext)
+    : Binary(Binary), Address(Address) {
+  Index = Binary->getIndexForAddr(Address);
+  if (RoundToNext) {
+    // we might get address which is not the code
+    // it should round to the next valid address
+    this->Address = Binary->getAddressforIndex(Index);
+  }
+}
+
+void InstructionPointer::advance() {
+  Index++;
+  Address = Binary->getAddressforIndex(Index);
+}
+
+void InstructionPointer::backward() {
+  Index--;
+  Address = Binary->getAddressforIndex(Index);
+}
+
+void InstructionPointer::update(uint64_t Addr) {
+  Address = Addr;
+  Index = Binary->getIndexForAddr(Address);
 }
 
 } // end namespace sampleprof

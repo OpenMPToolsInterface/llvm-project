@@ -10,6 +10,7 @@
 #include "InputInfo.h"
 #include "ToolChains/AIX.h"
 #include "ToolChains/AMDGPU.h"
+#include "ToolChains/AMDGPUOpenMP.h"
 #include "ToolChains/AVR.h"
 #include "ToolChains/Ananas.h"
 #include "ToolChains/BareMetal.h"
@@ -739,18 +740,27 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
             Diag(clang::diag::err_drv_invalid_omp_target) << Val;
           else {
             const ToolChain *TC;
-            // CUDA toolchains have to be selected differently. They pair host
+            // Device toolchains have to be selected differently. They pair host
             // and device in their implementation.
-            if (TT.isNVPTX()) {
+            if (TT.isNVPTX() || TT.isAMDGCN()) {
               const ToolChain *HostTC =
                   C.getSingleOffloadToolChain<Action::OFK_Host>();
               assert(HostTC && "Host toolchain should be always defined.");
-              auto &CudaTC =
+              auto &DeviceTC =
                   ToolChains[TT.str() + "/" + HostTC->getTriple().normalize()];
-              if (!CudaTC)
-                CudaTC = std::make_unique<toolchains::CudaToolChain>(
-                    *this, TT, *HostTC, C.getInputArgs(), Action::OFK_OpenMP);
-              TC = CudaTC.get();
+              if (!DeviceTC) {
+                if (TT.isNVPTX())
+                  DeviceTC = std::make_unique<toolchains::CudaToolChain>(
+                      *this, TT, *HostTC, C.getInputArgs(), Action::OFK_OpenMP);
+                else if (TT.isAMDGCN())
+                  DeviceTC =
+                      std::make_unique<toolchains::AMDGPUOpenMPToolChain>(
+                          *this, TT, *HostTC, C.getInputArgs());
+                else
+                  assert(DeviceTC && "Device toolchain not defined.");
+              }
+
+              TC = DeviceTC.get();
             } else
               TC = &getToolChain(C.getInputArgs(), TT);
             C.addOffloadDeviceToolChain(TC, Action::OFK_OpenMP);
@@ -779,10 +789,9 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
 /// by Dirs.
 ///
 static bool searchForFile(SmallVectorImpl<char> &FilePath,
-                          ArrayRef<std::string> Dirs,
-                          StringRef FileName) {
+                          ArrayRef<StringRef> Dirs, StringRef FileName) {
   SmallString<128> WPath;
-  for (const std::string &Dir : Dirs) {
+  for (const StringRef &Dir : Dirs) {
     if (Dir.empty())
       continue;
     WPath.clear();
@@ -807,7 +816,7 @@ bool Driver::readConfigFile(StringRef FileName) {
   // Read options from config file.
   llvm::SmallString<128> CfgFileName(FileName);
   llvm::sys::path::native(CfgFileName);
-  ConfigFile = std::string(CfgFileName.str());
+  ConfigFile = std::string(CfgFileName);
   bool ContainErrors;
   CfgOptions = std::make_unique<InputArgList>(
       ParseArgStrings(NewCfgArgs, IsCLMode(), ContainErrors));
@@ -864,9 +873,10 @@ bool Driver::loadConfigFile() {
     std::vector<std::string> ConfigFiles =
         CLOptions->getAllArgValues(options::OPT_config);
     if (ConfigFiles.size() > 1) {
-      if (!std::all_of(
-              ConfigFiles.begin(), ConfigFiles.end(),
-              [ConfigFiles](std::string s) { return s == ConfigFiles[0]; })) {
+      if (!std::all_of(ConfigFiles.begin(), ConfigFiles.end(),
+                       [ConfigFiles](const std::string &s) {
+                         return s == ConfigFiles[0];
+                       })) {
         Diag(diag::err_drv_duplicate_config);
         return true;
       }
@@ -939,10 +949,7 @@ bool Driver::loadConfigFile() {
   }
 
   // Prepare list of directories where config file is searched for.
-  SmallVector<std::string, 3> CfgFileSearchDirs;
-  CfgFileSearchDirs.push_back(UserConfigDir);
-  CfgFileSearchDirs.push_back(SystemConfigDir);
-  CfgFileSearchDirs.push_back(Dir);
+  StringRef CfgFileSearchDirs[] = {UserConfigDir, SystemConfigDir, Dir};
 
   // Try to find config file. First try file with corrected architecture.
   llvm::SmallString<128> CfgFilePath;
@@ -973,7 +980,7 @@ bool Driver::loadConfigFile() {
   // --config. If it was deduced from executable name, it is not an error.
   if (FileSpecifiedExplicitly) {
     Diag(diag::err_drv_config_file_not_found) << CfgFileName;
-    for (const std::string &SearchDir : CfgFileSearchDirs)
+    for (const StringRef &SearchDir : CfgFileSearchDirs)
       if (!SearchDir.empty())
         Diag(diag::note_drv_config_file_searched_in) << SearchDir;
     return true;
@@ -1012,13 +1019,15 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   // objects than Args. This copies an Arg from one of those other InputArgLists
   // to the ownership of Args.
   auto appendOneArg = [&Args](const Arg *Opt, const Arg *BaseArg) {
-      unsigned Index = Args.MakeIndex(Opt->getSpelling());
-      Arg *Copy = new llvm::opt::Arg(Opt->getOption(), Opt->getSpelling(),
-                                     Index, BaseArg);
-      Copy->getValues() = Opt->getValues();
-      if (Opt->isClaimed())
-        Copy->claim();
-      Args.append(Copy);
+    unsigned Index = Args.MakeIndex(Opt->getSpelling());
+    Arg *Copy = new llvm::opt::Arg(Opt->getOption(), Args.getArgString(Index),
+                                   Index, BaseArg);
+    Copy->getValues() = Opt->getValues();
+    if (Opt->isClaimed())
+      Copy->claim();
+    Copy->setOwnsValues(Opt->getOwnsValues());
+    Opt->setOwnsValues(false);
+    Args.append(Copy);
   };
 
   if (HasConfigFile)
@@ -2463,8 +2472,9 @@ class OffloadingActionBuilder final {
 
         // If the host input is not CUDA or HIP, we don't need to bother about
         // this input.
-        if (IA->getType() != types::TY_CUDA &&
-            IA->getType() != types::TY_HIP) {
+        if (!(IA->getType() == types::TY_CUDA ||
+              IA->getType() == types::TY_HIP ||
+              IA->getType() == types::TY_PP_HIP)) {
           // The builder will ignore this input.
           IsActive = false;
           return ABRT_Inactive;
@@ -2492,7 +2502,7 @@ class OffloadingActionBuilder final {
 
         // If -fgpu-rdc is disabled, should not unbundle since there is no
         // device code to link.
-        if (!Relocatable)
+        if (UA->getType() == types::TY_Object && !Relocatable)
           return ABRT_Inactive;
 
         CudaDeviceActions.clear();
@@ -3253,7 +3263,8 @@ public:
     // the input is not a bundle.
     if (CanUseBundler && isa<InputAction>(HostAction) &&
         InputArg->getOption().getKind() == llvm::opt::Option::InputClass &&
-        !types::isSrcFile(HostAction->getType())) {
+        (!types::isSrcFile(HostAction->getType()) ||
+         HostAction->getType() == types::TY_PP_HIP)) {
       auto UnbundlingHostAction =
           C.MakeAction<OffloadUnbundlingJobAction>(HostAction);
       UnbundlingHostAction->registerDependentActionInfo(
@@ -5112,9 +5123,7 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
                !Target.hasEnvironment())
         TC = std::make_unique<toolchains::MipsLLVMToolChain>(*this, Target,
                                                               Args);
-      else if (Target.getArch() == llvm::Triple::ppc ||
-               Target.getArch() == llvm::Triple::ppc64 ||
-               Target.getArch() == llvm::Triple::ppc64le)
+      else if (Target.isPPC())
         TC = std::make_unique<toolchains::PPCLinuxToolChain>(*this, Target,
                                                               Args);
       else if (Target.getArch() == llvm::Triple::ve)
