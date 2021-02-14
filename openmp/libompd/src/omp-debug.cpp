@@ -127,11 +127,19 @@ ompd_rc_t ompd_get_omp_version_string(
   ompd_address_space_context_t *context = address_space->context;
   ompd_word_t ver;
   ompd_rc_t ret;
-  static char omp_version[10];
+  char *omp_version;
+  ret = callbacks->alloc_memory(10,/* max digit can be store on int*/
+                              (void **)&omp_version);
+
+  if (ret != ompd_rc_ok)
+    return ret;
 
   ret = TValue(context, "__kmp_openmp_version")
             .castBase(ompd_type_int)
             .getValue(ver);
+  if (ret != ompd_rc_ok)
+    return ret;
+
   sprintf (omp_version, "%ld", ver);
   *string = omp_version;
   return ret;
