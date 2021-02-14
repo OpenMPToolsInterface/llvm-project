@@ -78,6 +78,9 @@ void ompd_init()
   OMPD_FOREACH_SIZEOF(ompd_init_sizeof)
 #undef ompd_init_sizeof
 
+  char* libname = "";
+
+#if KMP_OS_UNIX
   // Find the location of libomp.so thru dladdr and replace the libomp with libompd to get
   // the full path of libompd
   Dl_info dl_info;
@@ -85,9 +88,15 @@ void ompd_init()
   if (!ret) {
 	fprintf(stderr, "%s\n", dlerror());
   }
-  char* libname = (char*)malloc (strlen(dl_info.dli_fname)+ 2/*for 'd' and '\0'*/);
-  strcpy (libname, dl_info.dli_fname);
-  memcpy(strrchr(libname, '/'), "/libompd.so\0",12);
+  int lib_path_length;
+  if (strrchr(dl_info.dli_fname, '/')) {
+    lib_path_length = strrchr(dl_info.dli_fname, '/') - dl_info.dli_fname;
+
+    libname = (char*)malloc (lib_path_length + 12/*for '/libompd.so' and '\0'*/);
+    strcpy (libname, dl_info.dli_fname);
+    memcpy(strrchr(libname, '/'), "/libompd.so\0",12);
+  }
+#endif
 
   const char *ompd_env_var = getenv("OMP_DEBUG");
   if (ompd_env_var && !strcmp(ompd_env_var, "enabled"))
