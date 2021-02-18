@@ -459,7 +459,7 @@ PyObject *test_ompd_get_thread_id(PyObject *self, PyObject *args) {
 
   printf("Test: With Correct Arguments.\n");
   ompd_rc_t rc =
-      ompd_get_thread_id(thread_handle, 0 /*lwp*/, sizeof_thread_id, &threadID);
+      ompd_get_thread_id(thread_handle, 0 /*OMPD_THREAD_ID_PTHREAD*/, sizeof_thread_id, &threadID);
   if (rc != ompd_rc_ok) {
     printf("Failed, with return code = %d\n", rc);
     return Py_None;
@@ -469,7 +469,7 @@ PyObject *test_ompd_get_thread_id(PyObject *self, PyObject *args) {
   // ompd_rc_bad_input: if a different value in sizeof_thread_id is expected for
   // a thread kind of kind
   printf("Test: Wrong sizeof_thread_id.\n");
-  rc = ompd_get_thread_id(thread_handle, 0 /*lwp*/, sizeof_thread_id - 1,
+  rc = ompd_get_thread_id(thread_handle, 0 /*OMPD_THREAD_ID_PTHREAD*/, sizeof_thread_id - 1,
                           &threadID);
   if (rc != ompd_rc_bad_input)
     printf("Failed, with return code = %d\n", rc);
@@ -495,14 +495,14 @@ PyObject *test_ompd_get_thread_id(PyObject *self, PyObject *args) {
   */
 
   printf("Test: Expecting ompd_rc_bad_input for NULL threadID.\n");
-  rc = ompd_get_thread_id(thread_handle, 0 /*lwp*/, sizeof_thread_id, NULL);
+  rc = ompd_get_thread_id(thread_handle, 0 /*OMPD_THREAD_ID_PTHREAD*/, sizeof_thread_id, NULL);
   if (rc != ompd_rc_bad_input)
     printf("Failed, with return code = %d\n", rc);
   else
     printf("Success.\n");
 
   printf("Test: Expecting ompd_rc_error for NULL thread_handle.\n");
-  rc = ompd_get_thread_id(NULL, 0 /*lwp*/, sizeof_thread_id, &threadID);
+  rc = ompd_get_thread_id(NULL, 0 /*OMPD_THREAD_ID_PTHREAD*/, sizeof_thread_id, &threadID);
   if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
     printf("Failed, with return code = %d\n", rc);
   else
