@@ -492,6 +492,9 @@ static ompd_rc_t ompd_get_tool_libraries(
     ompd_address_space_handle_t *addr_handle, /* IN: address space handle*/
     const char **tool_libraries_string        /* OUT: tool libraries string */
     ) {
+  if (!tool_libraries_string)
+    return ompd_rc_bad_input;
+
   ompd_address_space_context_t *context = addr_handle->context;
   if (!context)
     return ompd_rc_stale_handle;
@@ -661,6 +664,8 @@ ompd_get_num_procs(ompd_address_space_handle_t
   if (!callbacks) {
     return ompd_rc_callback_error;
   }
+  if (!val)
+    return ompd_rc_bad_input;
 
   ompd_rc_t ret;
 

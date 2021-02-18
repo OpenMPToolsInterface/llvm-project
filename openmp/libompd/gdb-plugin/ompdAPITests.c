@@ -459,7 +459,7 @@ PyObject *test_ompd_get_thread_id(PyObject *self, PyObject *args) {
 
   printf("Test: With Correct Arguments.\n");
   ompd_rc_t rc =
-      ompd_get_thread_id(thread_handle, 1 /*lwp*/, sizeof_thread_id, &threadID);
+      ompd_get_thread_id(thread_handle, 0 /*lwp*/, sizeof_thread_id, &threadID);
   if (rc != ompd_rc_ok) {
     printf("Failed, with return code = %d\n", rc);
     return Py_None;
@@ -469,7 +469,7 @@ PyObject *test_ompd_get_thread_id(PyObject *self, PyObject *args) {
   // ompd_rc_bad_input: if a different value in sizeof_thread_id is expected for
   // a thread kind of kind
   printf("Test: Wrong sizeof_thread_id.\n");
-  rc = ompd_get_thread_id(thread_handle, 1 /*lwp*/, sizeof_thread_id - 1,
+  rc = ompd_get_thread_id(thread_handle, 0 /*lwp*/, sizeof_thread_id - 1,
                           &threadID);
   if (rc != ompd_rc_bad_input)
     printf("Failed, with return code = %d\n", rc);
@@ -495,14 +495,14 @@ PyObject *test_ompd_get_thread_id(PyObject *self, PyObject *args) {
   */
 
   printf("Test: Expecting ompd_rc_bad_input for NULL threadID.\n");
-  rc = ompd_get_thread_id(thread_handle, 1 /*lwp*/, sizeof_thread_id, NULL);
+  rc = ompd_get_thread_id(thread_handle, 0 /*lwp*/, sizeof_thread_id, NULL);
   if (rc != ompd_rc_bad_input)
     printf("Failed, with return code = %d\n", rc);
   else
     printf("Success.\n");
 
   printf("Test: Expecting ompd_rc_error for NULL thread_handle.\n");
-  rc = ompd_get_thread_id(NULL, 1 /*lwp*/, sizeof_thread_id, &threadID);
+  rc = ompd_get_thread_id(NULL, 0 /*lwp*/, sizeof_thread_id, &threadID);
   if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
     printf("Failed, with return code = %d\n", rc);
   else
@@ -961,7 +961,7 @@ PyObject *test_ompd_initialize(PyObject *self, PyObject *noargs) {
 
   printf("Test: Expecting ompd_rc_error or ompd_rc_bad_input for NULL\n");
   rc = my_ompd_init(NULL, &table);
-  if (rc != ompd_rc_error && rc != ompd_rc_bad_input)
+  if (rc != ompd_rc_unsupported && rc != ompd_rc_bad_input)
     printf("Failed, with return code = %d\n", rc);
   else
     printf("Success.\n");
@@ -1129,7 +1129,7 @@ PyObject *test_ompd_finalize(PyObject *self, PyObject *noargs) {
 
 PyObject *test_ompd_process_initialize(PyObject *self, PyObject *noargs) {
 
-  printf("Testing \"ompd_process_initializ\"....\n");
+  printf("Testing \"ompd_process_initialize\"....\n");
 
   ompd_address_space_handle_t *addr_handle;
 
@@ -2180,13 +2180,6 @@ PyObject *test_ompd_get_state(PyObject *self, PyObject *args) {
      ompd_rc_error:    is returned when a fatal error occurred;
   */
 
-  printf("Test: Expecting ompd_rc_bad_input for NULL wait_id.\n");
-  rc = ompd_get_state(thread_handle, &state, NULL);
-  if (rc != ompd_rc_bad_input)
-    printf("Failed. with return code = %d\n", rc);
-  else
-    printf("Success.\n");
-
   printf("Test: Expecting ompd_rc_error or stale handle for NULL "
          "thread_handle.\n");
   rc = ompd_get_state(NULL, &state, &wait_id);
@@ -2467,7 +2460,7 @@ PyObject *test_ompd_get_icv_from_scope_with_addr_handle(PyObject *self,
   // changes it also requires modification
   ompd_rc_t rc = ompd_get_icv_from_scope(
       addr_handle, ompd_scope_address_space,
-      17 /* ompd_icv_num_procs_var: check enum ompd_icv in omp-icv.cpp */,
+      19 /* ompd_icv_num_procs_var: check enum ompd_icv in omp-icv.cpp */,
       &icv_value);
   if (rc != ompd_rc_ok) {
     printf("Failed. with return code = %d\n", rc);
@@ -2488,7 +2481,7 @@ PyObject *test_ompd_get_icv_from_scope_with_addr_handle(PyObject *self,
   printf("Test: rc_incompatible for ICV that cant be represented as an "
          "integer.\n");
   rc = ompd_get_icv_from_scope(addr_handle, ompd_scope_address_space,
-                               11 /*ompd_icv_tool_libraries_var*/, &icv_value);
+                               12 /*ompd_icv_tool_libraries_var*/, &icv_value);
   if (rc != ompd_rc_incompatible)
     printf("Failed. with return code = %d\n", rc);
   else
@@ -2505,7 +2498,7 @@ PyObject *test_ompd_get_icv_from_scope_with_addr_handle(PyObject *self,
 
   printf("Test: Expecting ompd_rc_bad_input for NULL icv_value.\n");
   rc = ompd_get_icv_from_scope(addr_handle, ompd_scope_address_space,
-                               17 /*ompd_icv_num_procs_var*/, NULL);
+                               19 /*ompd_icv_num_procs_var*/, NULL);
   if (rc != ompd_rc_bad_input)
     printf("Failed. with return code = %d\n", rc);
   else
@@ -2513,8 +2506,8 @@ PyObject *test_ompd_get_icv_from_scope_with_addr_handle(PyObject *self,
 
   printf("Test: Expecting ompd_rc_error for NULL handle.\n");
   rc = ompd_get_icv_from_scope(NULL, ompd_scope_address_space,
-                               17 /*ompd_icv_num_procs_var*/, &icv_value);
-  if (rc != ompd_rc_error)
+                               19 /*ompd_icv_num_procs_var*/, &icv_value);
+  if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
     printf("Failed. with return code = %d\n", rc);
   else
     printf("Success.\n");
@@ -2536,7 +2529,7 @@ PyObject *test_ompd_get_icv_from_scope_with_thread_handle(PyObject *self,
   printf("Test: With Correct Arguments.\n");
   ompd_rc_t rc = ompd_get_icv_from_scope(
       thread_handle, ompd_scope_thread,
-      18 /* ompd_icv_thread_num_var  check enum ompd_icv in omp-icv.cpp */,
+      22 /* ompd_icv_thread_num_var  check enum ompd_icv in omp-icv.cpp */,
       &icv_value);
   if (rc != ompd_rc_ok) {
     printf("Failed. with return code = %d\n", rc);
@@ -2546,7 +2539,7 @@ PyObject *test_ompd_get_icv_from_scope_with_thread_handle(PyObject *self,
 
   printf("Test: with nthreads_var for ompd_rc_incomplete.\n");
   rc = ompd_get_icv_from_scope(thread_handle, ompd_scope_thread,
-                               6 /*ompd_icv_nthreads_var*/, &icv_value);
+                               7 /*ompd_icv_nthreads_var*/, &icv_value);
   if (rc != ompd_rc_incomplete) {
     printf("Failed. with return code = %d\n", rc);
     return Py_None;
@@ -2570,7 +2563,7 @@ PyObject *test_ompd_get_icv_from_scope_with_parallel_handle(PyObject *self,
   printf("Test: With Correct Arguments.\n");
   ompd_rc_t rc = ompd_get_icv_from_scope(
       parallel_handle, ompd_scope_parallel,
-      13 /*ompd_icv_active_levels_var:check enum ompd_icv in omp-icv.cpp */,
+      15 /*ompd_icv_active_levels_var:check enum ompd_icv in omp-icv.cpp */,
       &icv_value);
   if (rc != ompd_rc_ok) {
     printf("Failed. with return code = %d\n", rc);
@@ -2594,7 +2587,7 @@ PyObject *test_ompd_get_icv_from_scope_with_task_handle(PyObject *self,
   printf("Test: With Correct Arguments.\n");
   ompd_rc_t rc = ompd_get_icv_from_scope(
       task_handle, ompd_scope_task,
-      14 /*ompd_icv_thread_limit_var: check enum ompd_icv in omp-icv.cpp */,
+      16 /*ompd_icv_thread_limit_var: check enum ompd_icv in omp-icv.cpp */,
       &icv_value);
   if (rc != ompd_rc_ok) {
     printf("Failed. with return code = %d\n", rc);
@@ -2639,7 +2632,7 @@ PyObject *test_ompd_get_icv_string_from_scope(PyObject *self, PyObject *args) {
   printf("Test: With Correct Arguments.\n");
   ompd_rc_t rc = ompd_get_icv_string_from_scope(
       addr_handle, ompd_scope_address_space,
-      11 /*ompd_icv_tool_libraries_var: check enum ompd_icv in omp-icv.cpp */,
+      12 /*ompd_icv_tool_libraries_var: check enum ompd_icv in omp-icv.cpp */,
       &icv_string);
   if (rc != ompd_rc_ok) {
     printf("Failed. with return code = %d\n", rc);
@@ -2667,7 +2660,7 @@ PyObject *test_ompd_get_icv_string_from_scope(PyObject *self, PyObject *args) {
 
   printf("Test: Expecting ompd_rc_bad_input for NULL icv_string.\n");
   rc = ompd_get_icv_string_from_scope(addr_handle, ompd_scope_address_space,
-                                      11 /*ompd_icv_tool_libraries_var*/, NULL);
+                                      12 /*ompd_icv_tool_libraries_var*/, NULL);
   if (rc != ompd_rc_bad_input)
     printf("Failed. with return code = %d\n", rc);
   else
@@ -2675,9 +2668,9 @@ PyObject *test_ompd_get_icv_string_from_scope(PyObject *self, PyObject *args) {
 
   printf("Test: Expecting ompd_rc_error for NULL handle.\n");
   rc = ompd_get_icv_string_from_scope(NULL, ompd_scope_address_space,
-                                      11 /*ompd_icv_tool_libraries_var*/,
+                                      12 /*ompd_icv_tool_libraries_var*/,
                                       &icv_string);
-  if (rc != ompd_rc_error)
+  if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
     printf("Failed. with return code = %d\n", rc);
   else
     printf("Success.\n");
