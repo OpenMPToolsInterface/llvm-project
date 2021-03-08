@@ -1,5 +1,5 @@
 ompd init
-b ompd_bt.c:10
+b ompd_bt.c:9
 c
 ompd bt on
 bt

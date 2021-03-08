@@ -20,7 +20,6 @@
 #if OMPD_SUPPORT
 
 void ompd_init();
-//extern volatile const char * * ompd_dll_locations;
 extern int ompd_rtl_version;
 
 #ifdef  __cplusplus
@@ -94,10 +93,8 @@ OMPD_ACCESS(kmp_nested_proc_bind_t, bind_types) \
 OMPD_ACCESS(ompt_task_info_t,     frame) \
 OMPD_ACCESS(ompt_task_info_t,     scheduling_parent) \
 OMPD_ACCESS(ompt_task_info_t,     task_data) \
-/*OMPD_ACCESS(ompt_task_info_t,     function)*/ \
 \
 OMPD_ACCESS(ompt_team_info_t,     parallel_data) \
-/*OMPD_ACCESS(ompt_team_info_t,     microtask)*/ \
 \
 OMPD_ACCESS(ompt_thread_info_t,   state) \
 OMPD_ACCESS(ompt_thread_info_t,   wait_id) \
