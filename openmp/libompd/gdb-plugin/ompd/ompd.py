@@ -26,7 +26,7 @@ class ompd_init(gdb.Command):
 
 	# first parameter is command-line input, second parameter is gdb-specific data
 	def __init__(self):
-		self.__doc__ = 'Find and initialize OMPD library\nusage: ompd init'
+		self.__doc__ = 'Find and initialize OMPD library\n usage: ompd init'
 		super(ompd_init, self).__init__('ompd init',
 						gdb.COMMAND_DATA)
 
@@ -80,7 +80,7 @@ class ompd_init(gdb.Command):
 class ompd_threads(gdb.Command):
 	"""Register thread ids of current context"""
 	def __init__(self):
-		self.__doc__ = 'Register information on threads of current context\n usage: ompd threads'
+		self.__doc__ = 'Provide information on threads of current context.\n usage: ompd threads'
 		super(ompd_threads, self).__init__('ompd threads',
 						gdb.COMMAND_STATUS)
 	
@@ -215,7 +215,7 @@ def curr_thread():
 class ompd_test(gdb.Command):
 	"""Test area"""
 	def __init__(self):
-		self.__doc__ = 'Test functionalities for correctness\nusage: ompd test'
+		self.__doc__ = 'Test functionalities for correctness\n usage: ompd test'
 		super(ompd_test, self).__init__('ompd test',
 						gdb.COMMAND_OBSCURE)
 	
@@ -421,7 +421,7 @@ class ompdtestapi (gdb.Command):
 class ompd_bt(gdb.Command):
 	"""Turn filter for 'bt' on/off for output to only contain frames relevant to the application or all frames."""
 	def __init__(self):
-		self.__doc__ = 'Turn filter for "bt" output on or off. Specify "continued" option to trace worker threads back to master threads.\nusage: ompd bt on|on continued|off'
+		self.__doc__ = 'Turn filter for "bt" output on or off. Specify "on continued" option to trace worker threads back to master threads.\n usage: ompd bt on|on continued|off'
 		super(ompd_bt, self).__init__('ompd bt',
 					gdb.COMMAND_STACK)
 	
