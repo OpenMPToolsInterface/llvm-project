@@ -524,7 +524,7 @@ public:
 
   INLINE static void dispatch_fini() {
     // nothing
-#ifdef OMP_SUPPORT
+#ifdef OMPD_SUPPORT
   ompd_reset_device_thread_state()
 #endif
   }
@@ -764,7 +764,7 @@ void __kmpc_for_static_init_8u_simple_generic(
 }
 
 EXTERN void __kmpc_for_static_fini(kmp_Ident *loc, int32_t global_tid) {
-#ifdef OMP_SUPPORT
+#ifdef OMPD_SUPPORT
   ompd_reset_device_thread_state()
 #endif
   PRINT0(LD_IO, "call kmpc_for_static_fini\n");

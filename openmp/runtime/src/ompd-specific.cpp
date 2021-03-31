@@ -92,7 +92,6 @@ void ompd_init()
   }
     
   ompd_initialized = 1;
-//  ompd_dll_locations=ompd_my_dll_locations;
   ompd_dll_locations = (volatile const char * *)malloc(2*sizeof(const char *));
   ompd_dll_locations[0] = ompd_my_dll_locations[0];
   ompd_dll_locations[1] = ompd_my_dll_locations[1];

@@ -1,37 +1,31 @@
 // RUN: %gdb-compile 2>&1 | tee %t.compile
-// RUN: env OMP_SCHEDULE=dynamic,2 %gdb-test -x %S/ompd_icvs.cmd %t 2>&1 | tee %t.out | FileCheck %s
+// RUN: env OMP_SCHEDULE=dynamic,2 %gdb-test -x %S/ompd_icvs.cmd %t 2>&1 | tee
+// %t.out | FileCheck %s
 
-#include <stdio.h>
 #include <omp.h>
-int main (void)
-{
+#include <stdio.h>
+int main(void) {
   omp_set_max_active_levels(3);
   omp_set_dynamic(0);
   omp_set_num_threads(9);
-  #pragma omp parallel
+#pragma omp parallel
   {
     omp_set_num_threads(5);
-    #pragma omp parallel
+#pragma omp parallel
     {
-      #pragma omp single
-      {
-        printf ("Inner: num_thds=%d\n", omp_get_num_threads());
-      }
+#pragma omp single
+      { printf("Inner: num_thds=%d\n", omp_get_num_threads()); }
     }
-    #pragma omp barrier
+#pragma omp barrier
     omp_set_max_active_levels(0);
-    #pragma omp parallel
+#pragma omp parallel
     {
-      #pragma omp single
-      {
-        printf ("Inner: num_thds=%d\n", omp_get_num_threads());
-      }
+#pragma omp single
+      { printf("Inner: num_thds=%d\n", omp_get_num_threads()); }
     }
-    #pragma omp barrier
-    #pragma omp single
-    {
-      printf ("Outer: num_thds=%d\n", omp_get_num_threads());
-    }
+#pragma omp barrier
+#pragma omp single
+    { printf("Outer: num_thds=%d\n", omp_get_num_threads()); }
   }
   return 0;
 }

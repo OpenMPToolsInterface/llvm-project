@@ -38,8 +38,8 @@ extern "C" {
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
 
-#include "ompd-types.h"
 #include "omp-tools.h"
+#include "ompd-types.h"
 
 #ifdef __cplusplus
 }
@@ -47,9 +47,7 @@ extern "C" {
 /******************************************************************************
  * General helper functions
  ******************************************************************************/
-  ompd_rc_t initTypeSizes(ompd_address_space_context_t *context);
-
-
+ompd_rc_t initTypeSizes(ompd_address_space_context_t *context);
 
 static const ompd_callbacks_t *callbacks = nullptr;
 
@@ -92,14 +90,14 @@ typedef struct _ompd_aspace_handle {
 typedef struct _ompd_thread_handle {
   ompd_address_space_handle_t *ah;
   ompd_thread_context_t *thread_context;
-  ompd_address_t th; /* target handle */
+  ompd_address_t th;                                /* target handle */
   ompd_cuda_thread_kernel_info_t *cuda_kernel_info; /* only valid for cuda */
 } ompd_thread_handle_t;
 
 typedef struct _ompd_parallel_handle {
   ompd_address_space_handle_t *ah;
-  ompd_address_t th;  /* target handle */
-  ompd_address_t lwt; /* lwt handle */
+  ompd_address_t th;                                /* target handle */
+  ompd_address_t lwt;                               /* lwt handle */
   ompd_cuda_thread_kernel_info_t *cuda_kernel_info; /* copied from the thread
                                                        used to retrieve this
                                                        parallel region handle
@@ -108,19 +106,19 @@ typedef struct _ompd_parallel_handle {
 
 typedef struct _ompd_task_handle {
   ompd_address_space_handle_t *ah;
-  ompd_address_t th;  /* target handle */
-  ompd_address_t lwt; /* lwt handle */
+  ompd_address_t th;                                /* target handle */
+  ompd_address_t lwt;                               /* lwt handle */
   ompd_cuda_thread_kernel_info_t *cuda_kernel_info; /* copied from the thread
                                                        used to retrieve this
                                                        parallel region handle
                                                      */
-  _ompd_task_handle(){
-    ah=NULL;
-    th.segment=OMPD_SEGMENT_UNSPECIFIED; 
-    lwt.segment=OMPD_SEGMENT_UNSPECIFIED; 
-    th.address=0;
-    lwt.address=0;
-    cuda_kernel_info=NULL;
+  _ompd_task_handle() {
+    ah = NULL;
+    th.segment = OMPD_SEGMENT_UNSPECIFIED;
+    lwt.segment = OMPD_SEGMENT_UNSPECIFIED;
+    th.address = 0;
+    lwt.address = 0;
+    cuda_kernel_info = NULL;
   }
 } ompd_task_handle_t;
 

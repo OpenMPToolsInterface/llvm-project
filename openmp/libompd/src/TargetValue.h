@@ -103,11 +103,9 @@ protected:
   TError errorState;
   TType *type;
   int pointerLevel;
-  //  const char* valueName;
   ompd_address_space_context_t *context;
   ompd_thread_context_t *tcontext;
   ompd_address_t symbolAddr;
-  // size_t fieldSize;
   ompd_size_t fieldSize;
 
 public:
@@ -131,10 +129,6 @@ public:
       : TValue(_context, NULL, _addr) {}
   TValue(ompd_address_space_context_t *context, ompd_thread_context_t *tcontext,
          ompd_address_t addr);
-  //   TValue(ompd_address_space_context_t *context, const struct ompd_handle*
-  //   th): TValue(context, NULL, th) {}
-  //   TValue(ompd_address_space_context_t *context, ompd_thread_context_t
-  //   *tcontext, const struct ompd_handle* th);
   /**
    * Cast the target value object to some type of typeName
    *
@@ -170,7 +164,6 @@ public:
    * read error.
    */
   ompd_rc_t getString(const char **buf);
-  //   ompd_rc_t getAddress(struct ompd_handle* th) const;
   /**
    * Get a new target value object for the dereferenced target value
    * reduces the pointer level, uses the target value as new target address,
@@ -225,13 +218,11 @@ public:
 
 class TBaseValue : public TValue {
 protected:
-  //   ompd_target_prim_types_t baseType=ompd_type_invalid;
   ompd_size_t baseTypeSize = 0;
   TBaseValue(const TValue &, ompd_target_prim_types_t baseType);
   TBaseValue(const TValue &, ompd_size_t baseTypeSize);
 
 public:
-  //   ompd_rc_t getValue(struct ompd_handle* buf, int count);
   ompd_rc_t getValue(void *buf, int count);
   template <typename T> ompd_rc_t getValue(T &buf);
 
@@ -264,15 +255,5 @@ template <typename T> ompd_rc_t TBaseValue::getValue(T &buf) {
 #else
 #define EXTERN_C
 #endif
-
-// EXTERN_C int getNumberOfOMPThreads(ompd_address_space_context_t *context);
-// EXTERN_C int32_t getOmpThreadID(ompd_address_space_context_t *context);
-// EXTERN_C uint64_t getSystemThreadID(ompd_address_space_context_t *context,
-// ompd_thread_handle_t t);
-// EXTERN_C ompd_thread_handle_t getOmpThreadHandle(ompd_address_space_context_t
-// *context);
-// EXTERN_C void getThreadState(ompd_address_space_context_t *context,
-// ompd_thread_handle_t t, ompt_state_t *state,
-//    ompt_wait_id_t *wait_id);
 
 #endif /*SRC_TARGET_VALUE_H_*/

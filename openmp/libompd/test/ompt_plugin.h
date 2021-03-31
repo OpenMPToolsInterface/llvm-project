@@ -1,13 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
-//#define _GNU_SOURCE          /* See feature_test_macros(7) */
 #include <unistd.h>
 #include <dlfcn.h>
 #include <omp.h>
 #include <omp-tools.h>
-
-//#define THREAD_ADDR 1
 
 typedef struct omp_t_data {
 	// Thread data
@@ -27,25 +24,17 @@ typedef struct omp_t_data {
 	int omp_dynamic;
 	int omp_nested;
 	int omp_max_active_levels;
-	// omp_get_schedule
 	omp_sched_t omp_kind;
 	int omp_modifier;
-	// omp_get_proc_bind
 	omp_proc_bind_t omp_proc_bind;
 	ompt_frame_t* ompt_frame_list;
 	ompt_data_t* ompt_task_data;
-//	int max_task_depth;
 } omp_t_data_t;
 
 __thread omp_t_data_t thread_data;
 
 
 static ompt_function_lookup_t ompt_lookup;
-
-// TODO: remove macro
-// #define declare_inquery_fn(F) static F##_t F;
-// FOREACH_OMPT_INQUIRY_FN(declare_inquery_fn)
-// #undef declare_inquery_fn
 
 static ompt_set_callback_t ompt_set_callback;
 static ompt_get_callback_t ompt_get_callback;
