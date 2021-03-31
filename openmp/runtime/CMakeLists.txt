@@ -317,6 +317,10 @@ endif()
 set(LIBOMP_OMPD_SUPPORT FALSE CACHE BOOL
   "OMPD-support?")
 
+if(LIBOMP_OMPD_SUPPORT AND ((NOT LIBOMP_OMPT_SUPPORT) OR WIN32))
+  libomp_error_say("OpenMP Debug Interface(OMPD) requested but not available in this implementation")
+endif()
+
 # Error check hwloc support after config-ix has run
 if(LIBOMP_USE_HWLOC AND (NOT LIBOMP_HAVE_HWLOC))
   libomp_error_say("Hwloc requested but not available")
