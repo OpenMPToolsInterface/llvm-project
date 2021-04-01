@@ -73,7 +73,7 @@ ompd_process_initialize(ompd_address_space_context_t *context,
       ompd_address_space_context_t *, ompd_address_space_handle_t **) = NULL;
   if (!my_ompd_process_initialize) {
     my_ompd_process_initialize =
-        dlsym(ompd_library, "my_ompd_process_initialize");
+        dlsym(ompd_library, "ompd_process_initialize");
     if (dlerror()) {
       return ompd_rc_error;
     }
