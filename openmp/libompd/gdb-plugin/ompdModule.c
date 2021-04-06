@@ -458,7 +458,6 @@ static PyObject* ompd_open(PyObject* self, PyObject* args)
 	}
 	ompd_library = dlopen(name, RTLD_LAZY);
 	if ((dlerr = dlerror())){
-		_print(dlerr, 0);
 		return Py_BuildValue("i", -2);
 	}
 	if (dlerror()) {
