@@ -464,7 +464,7 @@ PyObject *test_ompd_get_thread_id(PyObject *self, PyObject *args) {
     printf("Failed, with return code = %d\n", rc);
     return Py_None;
   } else
-    printf("Success. Thread id = %d\n", threadID);
+    printf("Success. Thread id = %ld\n", threadID);
 
   // ompd_rc_bad_input: if a different value in sizeof_thread_id is expected for
   // a thread kind of kind
@@ -853,8 +853,8 @@ PyObject *test_ompd_rel_parallel_handle(PyObject *self, PyObject *args) {
   printf ("Skipped. Aborted, not handled.\n");
 #endif
 
-  printf ("Test: Expecting stale handle or bad_input for NULL
-                 thread_handle.\n");
+  printf (
+   "Test: Expecting stale handle or bad_input for NULL thread_handle.\n");
   // Freeing NULL may not be a wise check !!!
 #if ABORTHANDLED
   rc = ompd_rel_parallel_handle (NULL);
@@ -960,7 +960,7 @@ PyObject *test_ompd_initialize(PyObject *self, PyObject *noargs) {
     printf("Success.\n");
 
   printf("Test: Expecting ompd_rc_error or ompd_rc_bad_input for NULL\n");
-  rc = my_ompd_init(NULL, &table);
+  rc = my_ompd_init(0, &table);
   if (rc != ompd_rc_error && rc != ompd_rc_bad_input)
     printf("Failed, with return code = %d\n", rc);
   else
@@ -1003,7 +1003,7 @@ PyObject *test_ompd_get_api_version(PyObject *self, PyObject *noargs) {
     printf("Failed, with return code = %d\n", rc);
     return Py_None;
   } else
-    printf("Success. API version is %d\n", version);
+    printf("Success. API version is %ld\n", version);
 
   printf(
       "Test: Expecting ompd_rc_error or ompd_rc_bad_input for NULL version\n");
@@ -1443,7 +1443,7 @@ PyObject *test_ompd_get_curr_task_handle(PyObject *self, PyObject *args) {
 
   printf("Test: Expecting ompd_rc_error or stale_handle for NULL "
          "thread_handle.\n");
-  rc = ompd_get_curr_parallel_handle(NULL, &task_handle);
+  rc = ompd_get_curr_task_handle(NULL, &task_handle);
   if (rc != ompd_rc_error && rc != ompd_rc_stale_handle)
     printf("Failed. with return code = %d\n", rc);
   else
@@ -2017,7 +2017,7 @@ PyObject *test_ompd_get_task_function(PyObject *self, PyObject *args) {
     printf("Failed. with return code = %d\n", rc);
     return Py_None;
   } else
-    printf("Success. Entry point is %p.\n", entry_point);
+    printf("Success. Entry point is %lx.\n", entry_point.address);
 
   // Random checks with  null and invalid args.
   /*
@@ -2244,7 +2244,7 @@ PyObject *test_ompd_get_display_control_vars(PyObject *self, PyObject *args) {
       (ompd_address_space_handle_t *)PyCapsule_GetPointer(addrSpaceTup,
                                                           "AddressSpace");
 
-  const char const **control_vars;
+  const char *const *control_vars;
 
   printf("Test: With Correct Arguments.\n");
   ompd_rc_t rc = ompd_get_display_control_vars(addr_handle, &control_vars);
